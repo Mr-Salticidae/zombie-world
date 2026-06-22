@@ -464,6 +464,7 @@ const touchUI = document.getElementById('touchUI');
 const stickL = document.getElementById('stickL'), nubL = document.getElementById('nubL');
 const stickR = document.getElementById('stickR'), nubR = document.getElementById('nubR');
 const swapBtn = document.getElementById('swapBtn');
+const ultBtn = document.getElementById('ultBtn');
 let tMove = { id:null, ox:0, oy:0, vx:0, vy:0 }, tFire = { id:null, ox:0, oy:0, vx:0, vy:0 };
 function placeStick(el, x, y){ el.style.left = (x-60)+'px'; el.style.top = (y-60)+'px'; el.style.display='block'; }
 function placeNub(nub, vx, vy){
@@ -501,6 +502,13 @@ addEventListener('touchend', e => {
   }
 }, { passive:true });
 swapBtn.addEventListener('click', () => { if (state==='play') cycleWeapon(1); });
+ultBtn.addEventListener('click', () => { if (state==='play') activateUlt(); });
+// 触屏无双按钮：随充能状态切换文案与配色（PC 仍用 canvas 内圆形按钮）
+function updateUltBtn(){
+  if (player.ultT > 0){ ultBtn.textContent = Math.ceil(player.ultT) + 's'; ultBtn.dataset.s = 'active'; }
+  else if (player.ultCharge > 0){ ultBtn.textContent = '无双'; ultBtn.dataset.s = 'ready'; }
+  else { ultBtn.textContent = player.ultKills + '/50'; ultBtn.dataset.s = 'charge'; }
+}
 
 /* ---------- 鼠标控制（点击移动 + 长按持续跟随） ---------- */
 const mouse = { sx: VW/2, sy: VH/2, has: false, down: false, rdown: false };
@@ -1685,32 +1693,36 @@ function drawHUD(){
   ctx.strokeText('击杀 ' + kills, VW-18, 60);
   ctx.fillStyle = '#f7f4ea';
   ctx.fillText('击杀 ' + kills, VW-18, 60);
-  // 右下角：无双大招按钮
-  const ux = ULT_BTN.x, uy = ULT_BTN.y;
-  ctx.beginPath(); ctx.arc(ux, uy, 26, 0, 7);
-  if (player.ultT > 0) ctx.fillStyle = 'rgba(255,179,62,.95)';
-  else if (player.ultCharge > 0)
-    ctx.fillStyle = Math.floor(time*4)%2 ? 'rgba(224,60,49,.95)' : 'rgba(216,82,30,.95)';
-  else ctx.fillStyle = 'rgba(28,24,18,.78)';
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = (player.ultCharge > 0 || player.ultT > 0) ? '#ffe23e' : '#57503f';
-  ctx.stroke();
-  ctx.lineWidth = 4;
-  if (player.ultT > 0){                       // 持续时间倒计时圈
-    ctx.strokeStyle = '#fff';
-    ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*player.ultT/15); ctx.stroke();
-  } else if (player.ultCharge <= 0){          // 充能进度圈
-    ctx.strokeStyle = '#ffb33e';
-    ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*player.ultKills/50); ctx.stroke();
+  // 右下角：无双大招按钮（PC 画在 canvas 内、可鼠标点；触屏改用 HTML #ultBtn）
+  if (isTouch){
+    updateUltBtn();
+  } else {
+    const ux = ULT_BTN.x, uy = ULT_BTN.y;
+    ctx.beginPath(); ctx.arc(ux, uy, 26, 0, 7);
+    if (player.ultT > 0) ctx.fillStyle = 'rgba(255,179,62,.95)';
+    else if (player.ultCharge > 0)
+      ctx.fillStyle = Math.floor(time*4)%2 ? 'rgba(224,60,49,.95)' : 'rgba(216,82,30,.95)';
+    else ctx.fillStyle = 'rgba(28,24,18,.78)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = (player.ultCharge > 0 || player.ultT > 0) ? '#ffe23e' : '#57503f';
+    ctx.stroke();
+    ctx.lineWidth = 4;
+    if (player.ultT > 0){                       // 持续时间倒计时圈
+      ctx.strokeStyle = '#fff';
+      ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*player.ultT/15); ctx.stroke();
+    } else if (player.ultCharge <= 0){          // 充能进度圈
+      ctx.strokeStyle = '#ffb33e';
+      ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*player.ultKills/50); ctx.stroke();
+    }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = player.ultCharge > 0 || player.ultT > 0 ? '#fff' : '#9c947f';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(player.ultT > 0 ? Math.ceil(player.ultT) + 's'
+               : (player.ultCharge > 0 ? '无双' : player.ultKills + '/50'), ux, uy);
+    ctx.font = '10px sans-serif';
+    ctx.fillText(player.ultT > 0 ? '乱舞中' : 'R / 点击', ux, uy + 14);
   }
-  ctx.textAlign = 'center';
-  ctx.fillStyle = player.ultCharge > 0 || player.ultT > 0 ? '#fff' : '#9c947f';
-  ctx.font = 'bold 13px sans-serif';
-  ctx.fillText(player.ultT > 0 ? Math.ceil(player.ultT) + 's'
-             : (player.ultCharge > 0 ? '无双' : player.ultKills + '/50'), ux, uy);
-  ctx.font = '10px sans-serif';
-  ctx.fillText(player.ultT > 0 ? '乱舞中' : 'R / 点击', ux, uy + 14);
   // 顶部中央：Boss 血条
   if (bosses.length > 0){
     const b = bosses[0];
@@ -1990,6 +2002,7 @@ function setScreen(s){
   const playing = (s === 'play');
   touchUI.style.display = playing && isTouch ? 'block' : 'none';
   swapBtn.style.display = playing && isTouch ? 'block' : 'none';
+  ultBtn.style.display  = playing && isTouch ? 'block' : 'none';
   if (!playing){ stickL.style.display = 'none'; stickR.style.display = 'none'; }
   cvs.style.cursor = (playing && controlMode === 'mouse') ? 'none' : 'default';
 }

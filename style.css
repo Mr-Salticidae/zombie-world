@@ -81,6 +81,16 @@
   #swapBtn { position:fixed; top:max(10px,env(safe-area-inset-top)); right:max(12px,env(safe-area-inset-right)); z-index:6;
     min-width:44px; min-height:44px; padding:10px 16px; font-size:14px; font-weight:700; color:#f2efe4;
     background:rgba(30,26,20,.85); border:2px solid #57503f; border-radius:8px; display:none; }
+  /* ---------- 触屏无双大招按钮（与切换武器键同属游戏 UI 风格，圆形+红色区分） ---------- */
+  #ultBtn { position:fixed; right:max(12px,env(safe-area-inset-right)); bottom:max(14px,env(safe-area-inset-bottom));
+    z-index:6; width:66px; height:66px; border-radius:50%; display:none;
+    font-size:15px; font-weight:800; letter-spacing:.04em; color:#f2efe4;
+    background:rgba(30,26,20,.85); border:2px solid #57503f; box-shadow:0 3px 0 #000; }
+  #ultBtn[data-s="ready"] { background:linear-gradient(180deg,#e03c31,#9c1f17); border-color:#ffe23e;
+    animation:ultPulse 1.4s ease-in-out infinite; }
+  #ultBtn[data-s="active"] { background:rgba(255,179,62,.95); border-color:#fff; color:#2a0707; }
+  #ultBtn[data-s="charge"] { opacity:.82; }
+  @keyframes ultPulse { 50% { box-shadow:0 3px 0 #000, 0 0 22px rgba(224,60,49,.6); } }
   /* ---------- 手机竖屏旋转提示 ---------- */
   #rotate { position:fixed; inset:0; z-index:60; display:flex; flex-direction:column;
     align-items:center; justify-content:center; text-align:center; background:#0b0d10; color:#e8e4d8;
