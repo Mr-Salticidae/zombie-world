@@ -1,0 +1,80 @@
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; background:#0b0d10; overflow:hidden; touch-action:none;
+    font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; }
+  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  canvas#game { background:#d9cdb4; box-shadow:0 0 80px rgba(0,0,0,.9); }
+  .screen { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; background:rgba(14,12,9,.9); z-index:10; color:#e8e4d8; text-align:center; }
+  .hidden { display:none !important; }
+  h1.logo { font-size:min(11vw,72px); font-weight:900; letter-spacing:.08em; line-height:1.1;
+    color:#f2efe4; text-shadow:0 4px 0 #6e1313, 0 8px 0 #2a0707, 0 12px 24px rgba(0,0,0,.8); }
+  h1.logo span { color:#e03c31; }
+  .sub { margin-top:10px; font-size:min(3.6vw,16px); letter-spacing:.5em; color:#9c947f; }
+  .btn { margin-top:14px; padding:14px 52px; font-size:min(5vw,22px); font-weight:800;
+    color:#f2efe4; background:#1d2126; border:3px solid #3a4048; cursor:pointer;
+    letter-spacing:.3em; text-indent:.3em; box-shadow:0 5px 0 #000; transition:transform .05s; }
+  .btn:hover { background:#e03c31; border-color:#ff8a7a; }
+  .btn:active { transform:translateY(4px); box-shadow:0 1px 0 #000; }
+  .btn.minor { font-size:min(3.8vw,15px); padding:10px 34px; opacity:.9; }
+  .help-box { max-width:640px; width:92%; background:#15130f; border:3px solid #4a4438;
+    padding:26px 30px; text-align:left; font-size:min(3.8vw,15.5px); line-height:2.05; color:#d8d2c2; }
+  .help-box h2 { color:#f2efe4; font-size:min(5vw,20px); margin-bottom:10px; letter-spacing:.2em; }
+  .help-box b { color:#ffb33e; font-weight:700; }
+  kbd { display:inline-block; min-width:26px; padding:1px 7px; margin:0 2px; text-align:center;
+    background:#26221a; border:1px solid #57503f; border-bottom-width:3px; border-radius:4px;
+    color:#f2efe4; font-family:inherit; font-size:.9em; }
+  .stats { margin:18px 0 6px; font-size:min(4.4vw,19px); line-height:2.1; color:#d8d2c2; }
+  .stats em { font-style:normal; color:#ffb33e; font-weight:800; font-size:1.25em; margin-left:8px; }
+  .deadtitle { font-size:min(12vw,64px); font-weight:900; color:#e03c31; letter-spacing:.15em;
+    text-shadow:0 5px 0 #2a0707; }
+  .tip { margin-top:22px; font-size:12.5px; color:#7d7665; letter-spacing:.15em; }
+  /* ---------- 主菜单美化 ---------- */
+  #menu { background:
+      radial-gradient(ellipse at 50% 26%, rgba(224,60,49,.18), transparent 56%),
+      radial-gradient(ellipse at 18% 86%, rgba(57,255,136,.06), transparent 45%),
+      linear-gradient(180deg, #15171c 0%, #0b0d10 58%, #170c0c 100%); }
+  #menu::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 4px); }
+  #menu::after { content:""; position:absolute; inset:0; pointer-events:none;
+    box-shadow:inset 0 0 180px rgba(0,0,0,.85); }
+  #menu > * { position:relative; z-index:1; }
+  #menu h1.logo { animation: logoIn .7s cubic-bezier(.2,1.5,.4,1) both; }
+  #menu h1.logo span { animation: flick 3.6s infinite; }
+  @keyframes logoIn { from { transform:translateY(-46px) scale(.82); opacity:0; } }
+  @keyframes flick { 0%,91%,95%,100%{opacity:1} 93%{opacity:.5} }
+  .badges { display:flex; gap:12px; margin-top:20px; flex-wrap:wrap; justify-content:center; }
+  .badge { padding:6px 16px; border:2px solid #57503f; background:rgba(38,34,26,.72);
+    font-size:13px; color:#d8d2c2; letter-spacing:.14em; box-shadow:0 3px 0 #000; }
+  .badge b { color:#ffb33e; font-size:1.15em; margin-right:2px; }
+  #btnStart { background:linear-gradient(180deg,#e03c31,#9c1f17); border-color:#ff8a7a;
+    animation:btnPulse 1.7s ease-in-out infinite; }
+  #btnStart:hover { background:linear-gradient(180deg,#ff5a4d,#b8281d); }
+  @keyframes btnPulse { 50% { box-shadow:0 5px 0 #000, 0 0 28px rgba(224,60,49,.55); } }
+  .float-z { position:absolute; font-size:54px; opacity:.11; filter:grayscale(.35);
+    animation:drift 11s ease-in-out infinite; pointer-events:none; user-select:none; z-index:0 !important; }
+  .z1 { left:8%;  top:18%;    animation-delay:0s; }
+  .z2 { right:9%; top:28%;    animation-delay:-4s; font-size:68px; }
+  .z3 { left:15%; bottom:13%; animation-delay:-7s; font-size:44px; }
+  .z4 { right:16%; bottom:18%; animation-delay:-2s; font-size:38px; }
+  @keyframes drift { 0%,100%{transform:translateY(0) rotate(-4deg)} 50%{transform:translateY(-26px) rotate(5deg)} }
+  /* ---------- 地图选择页 ---------- */
+  #mapgrid { display:flex; flex-wrap:wrap; gap:16px; justify-content:center;
+    max-width:880px; margin-top:26px; }
+  .mapcard { cursor:pointer; background:#14161a; border:3px solid #3a4048;
+    padding:7px 7px 3px; box-shadow:0 5px 0 #000;
+    transition:transform .12s, border-color .12s, box-shadow .12s; }
+  .mapcard:hover { transform:translateY(-4px); border-color:#9aa0a8; }
+  .mapcard.sel { border-color:#ffb33e; box-shadow:0 5px 0 #000, 0 0 20px rgba(255,179,62,.38); }
+  .mapcard canvas { display:block; }
+  .mapcard .nm { margin:7px 0 5px; font-size:14px; font-weight:700;
+    letter-spacing:.22em; color:#d8d2c2; }
+  .mapcard.sel .nm { color:#ffb33e; }
+  .mapcard.sel .nm::before { content:"✔ "; }
+  #touchUI { position:fixed; inset:0; z-index:5; pointer-events:none; display:none; }
+  #touchUI .stick { position:absolute; width:120px; height:120px; border:2px solid rgba(40,30,20,.35);
+    border-radius:50%; background:rgba(255,255,255,.08); display:none; }
+  #touchUI .nub { position:absolute; width:52px; height:52px; border-radius:50%;
+    background:rgba(40,30,20,.35); left:34px; top:34px; }
+  #swapBtn { position:fixed; top:max(10px,env(safe-area-inset-top)); right:12px; z-index:6;
+    padding:10px 16px; font-size:14px; font-weight:700; color:#f2efe4; background:rgba(30,26,20,.85);
+    border:2px solid #57503f; border-radius:8px; display:none; }

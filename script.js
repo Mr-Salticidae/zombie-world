@@ -1,167 +1,3 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>僵尸危机：方块头 · 经典复刻版</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body { width:100%; height:100%; background:#0b0d10; overflow:hidden; touch-action:none;
-    font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; }
-  #wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
-  canvas#game { background:#d9cdb4; box-shadow:0 0 80px rgba(0,0,0,.9); }
-  .screen { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
-    justify-content:center; background:rgba(14,12,9,.9); z-index:10; color:#e8e4d8; text-align:center; }
-  .hidden { display:none !important; }
-  h1.logo { font-size:min(11vw,72px); font-weight:900; letter-spacing:.08em; line-height:1.1;
-    color:#f2efe4; text-shadow:0 4px 0 #6e1313, 0 8px 0 #2a0707, 0 12px 24px rgba(0,0,0,.8); }
-  h1.logo span { color:#e03c31; }
-  .sub { margin-top:10px; font-size:min(3.6vw,16px); letter-spacing:.5em; color:#9c947f; }
-  .btn { margin-top:14px; padding:14px 52px; font-size:min(5vw,22px); font-weight:800;
-    color:#f2efe4; background:#1d2126; border:3px solid #3a4048; cursor:pointer;
-    letter-spacing:.3em; text-indent:.3em; box-shadow:0 5px 0 #000; transition:transform .05s; }
-  .btn:hover { background:#e03c31; border-color:#ff8a7a; }
-  .btn:active { transform:translateY(4px); box-shadow:0 1px 0 #000; }
-  .btn.minor { font-size:min(3.8vw,15px); padding:10px 34px; opacity:.9; }
-  .help-box { max-width:640px; width:92%; background:#15130f; border:3px solid #4a4438;
-    padding:26px 30px; text-align:left; font-size:min(3.8vw,15.5px); line-height:2.05; color:#d8d2c2; }
-  .help-box h2 { color:#f2efe4; font-size:min(5vw,20px); margin-bottom:10px; letter-spacing:.2em; }
-  .help-box b { color:#ffb33e; font-weight:700; }
-  kbd { display:inline-block; min-width:26px; padding:1px 7px; margin:0 2px; text-align:center;
-    background:#26221a; border:1px solid #57503f; border-bottom-width:3px; border-radius:4px;
-    color:#f2efe4; font-family:inherit; font-size:.9em; }
-  .stats { margin:18px 0 6px; font-size:min(4.4vw,19px); line-height:2.1; color:#d8d2c2; }
-  .stats em { font-style:normal; color:#ffb33e; font-weight:800; font-size:1.25em; margin-left:8px; }
-  .deadtitle { font-size:min(12vw,64px); font-weight:900; color:#e03c31; letter-spacing:.15em;
-    text-shadow:0 5px 0 #2a0707; }
-  .tip { margin-top:22px; font-size:12.5px; color:#7d7665; letter-spacing:.15em; }
-  /* ---------- 主菜单美化 ---------- */
-  #menu { background:
-      radial-gradient(ellipse at 50% 26%, rgba(224,60,49,.18), transparent 56%),
-      radial-gradient(ellipse at 18% 86%, rgba(57,255,136,.06), transparent 45%),
-      linear-gradient(180deg, #15171c 0%, #0b0d10 58%, #170c0c 100%); }
-  #menu::before { content:""; position:absolute; inset:0; pointer-events:none;
-    background:repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 4px); }
-  #menu::after { content:""; position:absolute; inset:0; pointer-events:none;
-    box-shadow:inset 0 0 180px rgba(0,0,0,.85); }
-  #menu > * { position:relative; z-index:1; }
-  #menu h1.logo { animation: logoIn .7s cubic-bezier(.2,1.5,.4,1) both; }
-  #menu h1.logo span { animation: flick 3.6s infinite; }
-  @keyframes logoIn { from { transform:translateY(-46px) scale(.82); opacity:0; } }
-  @keyframes flick { 0%,91%,95%,100%{opacity:1} 93%{opacity:.5} }
-  .badges { display:flex; gap:12px; margin-top:20px; flex-wrap:wrap; justify-content:center; }
-  .badge { padding:6px 16px; border:2px solid #57503f; background:rgba(38,34,26,.72);
-    font-size:13px; color:#d8d2c2; letter-spacing:.14em; box-shadow:0 3px 0 #000; }
-  .badge b { color:#ffb33e; font-size:1.15em; margin-right:2px; }
-  #btnStart { background:linear-gradient(180deg,#e03c31,#9c1f17); border-color:#ff8a7a;
-    animation:btnPulse 1.7s ease-in-out infinite; }
-  #btnStart:hover { background:linear-gradient(180deg,#ff5a4d,#b8281d); }
-  @keyframes btnPulse { 50% { box-shadow:0 5px 0 #000, 0 0 28px rgba(224,60,49,.55); } }
-  .float-z { position:absolute; font-size:54px; opacity:.11; filter:grayscale(.35);
-    animation:drift 11s ease-in-out infinite; pointer-events:none; user-select:none; z-index:0 !important; }
-  .z1 { left:8%;  top:18%;    animation-delay:0s; }
-  .z2 { right:9%; top:28%;    animation-delay:-4s; font-size:68px; }
-  .z3 { left:15%; bottom:13%; animation-delay:-7s; font-size:44px; }
-  .z4 { right:16%; bottom:18%; animation-delay:-2s; font-size:38px; }
-  @keyframes drift { 0%,100%{transform:translateY(0) rotate(-4deg)} 50%{transform:translateY(-26px) rotate(5deg)} }
-  /* ---------- 地图选择页 ---------- */
-  #mapgrid { display:flex; flex-wrap:wrap; gap:16px; justify-content:center;
-    max-width:880px; margin-top:26px; }
-  .mapcard { cursor:pointer; background:#14161a; border:3px solid #3a4048;
-    padding:7px 7px 3px; box-shadow:0 5px 0 #000;
-    transition:transform .12s, border-color .12s, box-shadow .12s; }
-  .mapcard:hover { transform:translateY(-4px); border-color:#9aa0a8; }
-  .mapcard.sel { border-color:#ffb33e; box-shadow:0 5px 0 #000, 0 0 20px rgba(255,179,62,.38); }
-  .mapcard canvas { display:block; }
-  .mapcard .nm { margin:7px 0 5px; font-size:14px; font-weight:700;
-    letter-spacing:.22em; color:#d8d2c2; }
-  .mapcard.sel .nm { color:#ffb33e; }
-  .mapcard.sel .nm::before { content:"✔ "; }
-  #touchUI { position:fixed; inset:0; z-index:5; pointer-events:none; display:none; }
-  #touchUI .stick { position:absolute; width:120px; height:120px; border:2px solid rgba(40,30,20,.35);
-    border-radius:50%; background:rgba(255,255,255,.08); display:none; }
-  #touchUI .nub { position:absolute; width:52px; height:52px; border-radius:50%;
-    background:rgba(40,30,20,.35); left:34px; top:34px; }
-  #swapBtn { position:fixed; top:max(10px,env(safe-area-inset-top)); right:12px; z-index:6;
-    padding:10px 16px; font-size:14px; font-weight:700; color:#f2efe4; background:rgba(30,26,20,.85);
-    border:2px solid #57503f; border-radius:8px; display:none; }
-</style>
-</head>
-<body>
-<div id="wrap"><canvas id="game" width="960" height="640"></canvas></div>
-
-<div id="touchUI">
-  <div class="stick" id="stickL"><div class="nub" id="nubL"></div></div>
-  <div class="stick" id="stickR"><div class="nub" id="nubR"></div></div>
-</div>
-<button id="swapBtn">切换武器</button>
-
-<div id="menu" class="screen">
-  <div class="float-z z1">🧟</div>
-  <div class="float-z z2">🧟‍♂️</div>
-  <div class="float-z z3">🧟‍♀️</div>
-  <div class="float-z z4">🧟</div>
-  <h1 class="logo">僵尸<span>危机</span></h1>
-  <div class="sub">方 块 头 · 经 典 复 刻 版</div>
-  <div class="badges">
-    <div class="badge"><b>9</b>种武器</div>
-    <div class="badge"><b>5</b>张地图</div>
-    <div class="badge"><b>5</b>级BOSS</div>
-    <div class="badge">无双<b>大招</b></div>
-  </div>
-  <div style="height:20px"></div>
-  <button class="btn" id="btnStart">▶ 开始游戏</button>
-  <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
-  <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
-  <button class="btn minor" id="btnHelp">操作说明</button>
-  <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
-</div>
-
-<div id="mapsel" class="screen hidden">
-  <h1 class="logo" style="font-size:min(8vw,44px)">选择<span>地图</span></h1>
-  <div class="sub" style="letter-spacing:.32em">点 击 卡 片 选 择 战 场</div>
-  <div id="mapgrid"></div>
-  <button class="btn minor" id="btnMapBack" style="margin-top:26px">返回主菜单</button>
-</div>
-
-<div id="help" class="screen hidden">
-  <div class="help-box">
-    <h2>▍操作说明</h2>
-    <b>键盘经典模式</b>：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键移动，朝面对方向射击<br>
-    <b>鼠标射击模式</b>：<b>左键</b>点击/按住朝指针方向<b>攻击</b>；<b>右键</b>点击移动到该点、按住持续跟随；也可用 WASD 移动<br>
-    射击：左键 / <kbd>空格</kbd> / <kbd>J</kbd>（可按住连射）<br>
-    切换武器：<b>鼠标滚轮</b> / <kbd>Q</kbd> <kbd>E</kbd> / 数字键 <kbd>1</kbd>－<kbd>9</kbd> ｜ 暂停：<kbd>P</kbd> / <kbd>Esc</kbd><br>
-    <b>无双大招</b>：按 <kbd>R</kbd> 或点击右下角图标发动，化身近战大师，双刀乱舞并<b>吸血</b>，持续 15 秒；
-    开局自带一次，之后每击杀 <b>50</b> 个敌人重新充能<br>
-    主菜单可选 <b>5 种战场地图</b>（带实时预览）｜ 触屏：左摇杆移动，右摇杆瞄准射击<br>
-    <h2 style="margin-top:14px">▍游戏规则</h2>
-    抵御从四周涌来的<b>方块头僵尸</b>与会喷火球的<b>红恶魔</b>。<b>每波一只 BOSS，共五级递进</b>：
-    壮汉巨尸（召唤）→ 掠行猎尸（连环冲锋+毒吐）→ 碎地暴尸（召唤/冲锋/震地）→
-    灾祸巨像（再加全向弹幕）→ <b>僵尸博士</b>（巨大体型·全技能·毒池·残血狂暴）。
-    脚下红圈/绿圈是技能预警，快躲开！击破 BOSS 必掉补给。
-    连续击杀提升<b>连击倍数</b>，
-    倍数达到 <b>×3 / ×5 / ×8 / ×11 / ×13 / ×15 / ×17 / ×20</b> 依次解锁：
-    马格南、乌兹冲锋枪、霰弹枪、加特林、手雷、油桶、喷火器、火箭筒。
-    受到伤害连击减半。敌人偶尔掉落<b>医疗箱</b>与<b>弹药箱</b>。地上的油桶射击即可引爆，还会连环殉爆！
-  </div>
-  <button class="btn minor" id="btnBack">返 回</button>
-</div>
-
-<div id="pause" class="screen hidden">
-  <h1 class="logo" style="font-size:min(9vw,48px)">暂 停</h1>
-  <button class="btn" id="btnResume">继续游戏</button>
-  <button class="btn minor" id="btnMode2">操作模式：键盘经典</button>
-  <button class="btn minor" id="btnQuit">返回主菜单</button>
-</div>
-
-<div id="over" class="screen hidden">
-  <div class="deadtitle">你 阵 亡 了</div>
-  <div class="stats" id="finalStats"></div>
-  <button class="btn" id="btnRetry">重新开始</button>
-  <button class="btn minor" id="btnMenu">返回主菜单</button>
-</div>
-
-<script>
 "use strict";
 /* ============================================================
    僵尸危机：方块头 · 经典复刻版 v2
@@ -192,15 +28,21 @@ function audioInit(){
   master = AC.createGain(); master.gain.value = 0.6;
   master.connect(comp); comp.connect(AC.destination);
 }
-function nbuf(dur){
-  const b = AC.createBuffer(1, Math.max(1, AC.sampleRate * dur), AC.sampleRate);
-  const d = b.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  return b;
+// 全局复用一块 2 秒白噪声，避免每次音效都重新分配+填充缓冲
+let noiseBuf = null;
+function nbuf(){
+  if (!noiseBuf){
+    const len = (AC.sampleRate * 2) | 0;
+    noiseBuf = AC.createBuffer(1, len, AC.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
 }
 // 小工具：噪声 -> 滤波 -> 包络
 function noiseHit(dur, ftype, freq, q, vol, fEnd){
-  const n = AC.createBufferSource(); n.buffer = nbuf(dur);
+  const n = AC.createBufferSource(); n.buffer = nbuf();
+  const off = Math.random() * Math.max(0, 2 - dur);   // 随机起点，保留每发音色差异
   const f = AC.createBiquadFilter(); f.type = ftype; f.Q.value = q || 1;
   const t = AC.currentTime;
   f.frequency.setValueAtTime(freq, t);
@@ -209,7 +51,7 @@ function noiseHit(dur, ftype, freq, q, vol, fEnd){
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(.0008, t + dur);
   n.connect(f); f.connect(g); g.connect(master);
-  n.start(t);
+  n.start(t, off); n.stop(t + dur + .05);
 }
 // 小工具：振荡器扫频
 function sweep(type, f0, f1, dur, vol, delay){
@@ -518,7 +360,7 @@ let controlMode = 'classic';   // 'classic' 键盘经典 | 'mouse' 鼠标点击�
 let player, zombies, devils, bosses, bullets, grenades, rockets, barrels, fireballs,
     particles, pickups, banners, hazards, cam;
 let wave, spawnQueue, devilQueue, spawnTimer, waveRest, score, kills,
-    streak, multiplier, bestMulti, comboTimer, shake, time, frameN;
+    streak, multiplier, bestMulti, comboTimer, decayTimer, shake, time, frameN;
 
 function reset(){
   player = { x: WW/2, y: WH/2, r: 13, hp: 100, fx: 1, fy: 0,
@@ -533,7 +375,7 @@ function reset(){
   barrels = BARREL_SPOTS.map(([x,y]) => ({ x, y, r: 11, hp: 1 }));
   wave = 0; spawnQueue = 0; devilQueue = 0; spawnTimer = 0; waveRest = 2.2;
   score = 0; kills = 0; streak = 0; multiplier = 1; bestMulti = 1;
-  comboTimer = 0; shake = 0; time = 0; frameN = 0;
+  comboTimer = 0; decayTimer = 0; shake = 0; time = 0; frameN = 0;
   decals.length = 0;
 }
 
@@ -903,7 +745,10 @@ function update(dt, now){
   if (shake > 0) shake = Math.max(0, shake - dt*30);
 
   if (comboTimer > 0) comboTimer -= dt;
-  else if (streak > 0 && frameN % 30 === 0){ streak--; multiplier = Math.min(99, 1+Math.floor(streak/2)); }
+  else if (streak > 0){                          // 基于时间衰减，不再随屏幕刷新率变化
+    decayTimer += dt;
+    if (decayTimer >= .5){ decayTimer = 0; streak--; multiplier = Math.min(99, 1+Math.floor(streak/2)); }
+  }
 
   if (spawnQueue <= 0 && devilQueue <= 0 && zombies.length === 0 && devils.length === 0 && bosses.length === 0){
     waveRest -= dt;
@@ -1010,37 +855,23 @@ function update(dt, now){
     let dead = b.life <= 0;
     if (hitPillar(b.x, b.y, 0)){ dead = true; sparks(b.x, b.y, 4, '#d8d2c2'); }
     if (!dead){
-      for (const z of zombies){
-        if (z.hp > 0 && Math.hypot(z.x-b.x, z.y-b.y) < z.r+4){
-          z.hp -= b.dmg; z.hit = .12;
-          blood(b.x, b.y, b.flame ? 1 : 3);
-          if (!b.flame || frameN % 3 === 0) sfx('splat');
-          z.x += b.vx*dt*1.6; z.y += b.vy*dt*1.6;
-          if (b.pierce && b.pierce > 1) b.pierce--;   // 马格南穿透
-          else dead = true;
-          break;
+      // 命中判定：僵尸/恶魔/Boss 三类共用一段逻辑（僵尸额外被击退，Boss 判定半径略大）
+      const tryHit = (list, pad, knock) => {
+        for (const z of list){
+          if (z.hp > 0 && Math.hypot(z.x-b.x, z.y-b.y) < z.r+pad){
+            z.hp -= b.dmg; z.hit = .12;
+            blood(b.x, b.y, b.flame ? 1 : 3);
+            if (!b.flame || frameN % 3 === 0) sfx('splat');
+            if (knock){ z.x += b.vx*dt*1.6; z.y += b.vy*dt*1.6; }
+            if (b.pierce && b.pierce > 1) b.pierce--;   // 马格南穿透：不消失，继续往后判定
+            else dead = true;
+            return;
+          }
         }
-      }
-      if (!dead) for (const z of devils){
-        if (z.hp > 0 && Math.hypot(z.x-b.x, z.y-b.y) < z.r+4){
-          z.hp -= b.dmg; z.hit = .12;
-          blood(b.x, b.y, b.flame ? 1 : 3);
-          if (!b.flame || frameN % 3 === 0) sfx('splat');
-          if (b.pierce && b.pierce > 1) b.pierce--;
-          else dead = true;
-          break;
-        }
-      }
-      if (!dead) for (const z of bosses){
-        if (z.hp > 0 && Math.hypot(z.x-b.x, z.y-b.y) < z.r+5){
-          z.hp -= b.dmg; z.hit = .12;
-          blood(b.x, b.y, b.flame ? 1 : 3);
-          if (!b.flame || frameN % 3 === 0) sfx('splat');
-          if (b.pierce && b.pierce > 1) b.pierce--;
-          else dead = true;
-          break;
-        }
-      }
+      };
+      tryHit(zombies, 4, true);
+      if (!dead) tryHit(devils, 4, false);
+      if (!dead) tryHit(bosses, 5, false);
       if (!dead) for (const bl of barrels){
         if (bl.hp > 0 && Math.hypot(bl.x-b.x, bl.y-b.y) < bl.r+5){
           bl.fuse = bl.fuse ?? 0.01; dead = true; break;
@@ -1068,8 +899,11 @@ function update(dt, now){
       life:.25, max:.25, size:3.5, color:'#9a948a' });
     let hit = r.life <= 0 || hitPillar(r.x, r.y, 4);
     if (!hit){
-      for (const z of zombies.concat(devils, bosses)){
-        if (z.hp > 0 && Math.hypot(z.x-r.x, z.y-r.y) < z.r+6){ hit = true; break; }
+      for (const list of [zombies, devils, bosses]){     // 直接遍历三个列表，免去每帧 concat 新数组
+        for (const z of list){
+          if (z.hp > 0 && Math.hypot(z.x-r.x, z.y-r.y) < z.r+6){ hit = true; break; }
+        }
+        if (hit) break;
       }
     }
     if (hit){ explode(r.x, r.y, 110, 130); rockets.splice(i, 1); }
@@ -1333,6 +1167,7 @@ function update(dt, now){
   }
 
   // ----- 粒子 -----
+  if (particles.length > 800) particles.splice(0, particles.length - 800);  // 软上限，防连环爆炸粒子暴涨卡顿
   for (let i = particles.length-1; i >= 0; i--){
     const p = particles[i];
     p.life -= dt;
@@ -2004,16 +1839,26 @@ function render(){
   }
 
   // 深度排序层：油桶、僵尸、恶魔、玩家、石柱
+  // 用类型标记代替每实体的箭头函数闭包，减少每帧的垃圾回收压力
   const list = [];
-  for (const b of barrels) if (b.hp > 0) list.push({ y:b.y, f:() => drawBarrel(ctx, b) });
-  for (const z of zombies) list.push({ y:z.y, f:() => drawZombie(ctx, z) });
-  for (const v of devils)  list.push({ y:v.y, f:() => drawDevil(ctx, v) });
-  for (const b of bosses)  list.push({ y:b.y, f:() => drawBoss(ctx, b) });
+  for (const b of barrels) if (b.hp > 0) list.push({ y:b.y, t:0, o:b });
+  for (const z of zombies) list.push({ y:z.y, t:1, o:z });
+  for (const v of devils)  list.push({ y:v.y, t:2, o:v });
+  for (const b of bosses)  list.push({ y:b.y, t:3, o:b });
   if (state !== 'dying' && (player.inv <= 0 || Math.floor(time*14)%2 === 0))
-    list.push({ y:player.y, f:() => drawPlayer(ctx, player) });
-  for (const p of pillars) list.push({ y:p.y + p.r*.62, f:() => drawPillar(ctx, p) });
+    list.push({ y:player.y, t:4, o:player });
+  for (const p of pillars) list.push({ y:p.y + p.r*.62, t:5, o:p });
   list.sort((a, b) => a.y - b.y);
-  for (const it of list) it.f();
+  for (const it of list){
+    switch (it.t){
+      case 0: drawBarrel(ctx, it.o); break;
+      case 1: drawZombie(ctx, it.o); break;
+      case 2: drawDevil(ctx, it.o); break;
+      case 3: drawBoss(ctx, it.o); break;
+      case 4: drawPlayer(ctx, it.o); break;
+      case 5: drawPillar(ctx, it.o); break;
+    }
+  }
 
   // 子弹：火舌画橙色火团，其余画曳光
   for (const b of bullets){
@@ -2115,6 +1960,7 @@ const screens = { menu:document.getElementById('menu'), help:document.getElement
                   mapsel:document.getElementById('mapsel') };
 function setScreen(s){
   state = s;
+  if (s === 'pause') shake = 0;        // 暂停时立即停止画面抖动
   for (const k in screens) screens[k].classList.add('hidden');
   if (screens[s]) screens[s].classList.remove('hidden');
   const playing = (s === 'play');
@@ -2209,6 +2055,3 @@ function loop(now){
 }
 reset();
 requestAnimationFrame(loop);
-</script>
-</body>
-</html>

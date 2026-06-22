@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>僵尸危机：方块头 · 经典复刻版</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="960" height="640"></canvas></div>
+
+<div id="touchUI">
+  <div class="stick" id="stickL"><div class="nub" id="nubL"></div></div>
+  <div class="stick" id="stickR"><div class="nub" id="nubR"></div></div>
+</div>
+<button id="swapBtn">切换武器</button>
+
+<div id="menu" class="screen">
+  <div class="float-z z1">🧟</div>
+  <div class="float-z z2">🧟‍♂️</div>
+  <div class="float-z z3">🧟‍♀️</div>
+  <div class="float-z z4">🧟</div>
+  <h1 class="logo">僵尸<span>危机</span></h1>
+  <div class="sub">方 块 头 · 经 典 复 刻 版</div>
+  <div class="badges">
+    <div class="badge"><b>9</b>种武器</div>
+    <div class="badge"><b>5</b>张地图</div>
+    <div class="badge"><b>5</b>级BOSS</div>
+    <div class="badge">无双<b>大招</b></div>
+  </div>
+  <div style="height:20px"></div>
+  <button class="btn" id="btnStart">▶ 开始游戏</button>
+  <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
+  <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
+  <button class="btn minor" id="btnHelp">操作说明</button>
+  <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
+</div>
+
+<div id="mapsel" class="screen hidden">
+  <h1 class="logo" style="font-size:min(8vw,44px)">选择<span>地图</span></h1>
+  <div class="sub" style="letter-spacing:.32em">点 击 卡 片 选 择 战 场</div>
+  <div id="mapgrid"></div>
+  <button class="btn minor" id="btnMapBack" style="margin-top:26px">返回主菜单</button>
+</div>
+
+<div id="help" class="screen hidden">
+  <div class="help-box">
+    <h2>▍操作说明</h2>
+    <b>键盘经典模式</b>：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键移动，朝面对方向射击<br>
+    <b>鼠标射击模式</b>：<b>左键</b>点击/按住朝指针方向<b>攻击</b>；<b>右键</b>点击移动到该点、按住持续跟随；也可用 WASD 移动<br>
+    射击：左键 / <kbd>空格</kbd> / <kbd>J</kbd>（可按住连射）<br>
+    切换武器：<b>鼠标滚轮</b> / <kbd>Q</kbd> <kbd>E</kbd> / 数字键 <kbd>1</kbd>－<kbd>9</kbd> ｜ 暂停：<kbd>P</kbd> / <kbd>Esc</kbd><br>
+    <b>无双大招</b>：按 <kbd>R</kbd> 或点击右下角图标发动，化身近战大师，双刀乱舞并<b>吸血</b>，持续 15 秒；
+    开局自带一次，之后每击杀 <b>50</b> 个敌人重新充能<br>
+    主菜单可选 <b>5 种战场地图</b>（带实时预览）｜ 触屏：左摇杆移动，右摇杆瞄准射击<br>
+    <h2 style="margin-top:14px">▍游戏规则</h2>
+    抵御从四周涌来的<b>方块头僵尸</b>与会喷火球的<b>红恶魔</b>。<b>每波一只 BOSS，共五级递进</b>：
+    壮汉巨尸（召唤）→ 掠行猎尸（连环冲锋+毒吐）→ 碎地暴尸（召唤/冲锋/震地）→
+    灾祸巨像（再加全向弹幕）→ <b>僵尸博士</b>（巨大体型·全技能·毒池·残血狂暴）。
+    脚下红圈/绿圈是技能预警，快躲开！击破 BOSS 必掉补给。
+    连续击杀提升<b>连击倍数</b>，
+    倍数达到 <b>×3 / ×5 / ×8 / ×11 / ×13 / ×15 / ×17 / ×20</b> 依次解锁：
+    马格南、乌兹冲锋枪、霰弹枪、加特林、手雷、油桶、喷火器、火箭筒。
+    受到伤害连击减半。敌人偶尔掉落<b>医疗箱</b>与<b>弹药箱</b>。地上的油桶射击即可引爆，还会连环殉爆！
+  </div>
+  <button class="btn minor" id="btnBack">返 回</button>
+</div>
+
+<div id="pause" class="screen hidden">
+  <h1 class="logo" style="font-size:min(9vw,48px)">暂 停</h1>
+  <button class="btn" id="btnResume">继续游戏</button>
+  <button class="btn minor" id="btnMode2">操作模式：键盘经典</button>
+  <button class="btn minor" id="btnQuit">返回主菜单</button>
+</div>
+
+<div id="over" class="screen hidden">
+  <div class="deadtitle">你 阵 亡 了</div>
+  <div class="stats" id="finalStats"></div>
+  <button class="btn" id="btnRetry">重新开始</button>
+  <button class="btn minor" id="btnMenu">返回主菜单</button>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
