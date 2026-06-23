@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bilibili TOY Publisher"
+  short_description: "Preview, package, publish, and update Bilibili TOY pages"
+  default_prompt: "Use $bili-toy-publisher to preview and publish this local static page to Bilibili TOY safely."
