@@ -196,6 +196,48 @@ def make_banner():
     img.convert('RGB').save(os.path.join(OUT, 'banner.jpg'), quality=90)
     print('written images/banner.jpg', W, 'x', H)
 
+# ============ poster.png（平台封面 1200x900，4:3）============
+# Toy 列表卡片与公开动态卡片按 4:3 取图，3:1 的 banner 放进卡片会被裁掉两头。
+# 公开发布的 Toy 用这张。
+def make_poster():
+    W, H = 1200, 900
+    img = gradient_bg(W, H).convert('RGBA')
+    add_glow(img, W//2, int(H*0.26), 620, RED, 62)
+    add_glow(img, int(W*0.14), int(H*0.88), 360, GREEN, 15)
+    # 三层僵尸群：4:3 竖向空间更多，堆密一点，别在文案与尸群之间留一条空带
+    crowd = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    cd = ImageDraw.Draw(crowd)
+    for cx, sc, al, tn in [(70, 66, 78, .6), (250, 60, 66, .55), (450, 56, 56, .5),
+                           (760, 58, 58, .5), (960, 64, 70, .58), (1140, 68, 78, .6)]:
+        boxhead(cd, cx, int(H*0.90), sc, alpha=al, tone=tn)
+    img.alpha_composite(crowd)
+    mid = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    md = ImageDraw.Draw(mid)
+    for cx, sc, al, tn in [(150, 96, 150, .8), (520, 92, 132, .76),
+                           (690, 94, 132, .76), (1050, 100, 150, .8)]:
+        boxhead(md, cx, int(H*0.96), sc, alpha=al, tone=tn)
+    img.alpha_composite(mid)
+    fg = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(fg)
+    boxhead(fd, 300, int(H*1.02), 128)
+    boxhead(fd, 900, int(H*1.02), 128)
+    img.alpha_composite(fg)
+    scanlines(img)
+    seg_title(img, [('僵尸', CREAM), ('危机', RED)], W//2, int(H*0.255), font(160),
+              shadow_layers=((5, RED_DK1), (10, RED_DK2), (16, (0, 0, 0))))
+    d = ImageDraw.Draw(img)
+    sub = '方 块 头 · 经 典 复 刻 版'
+    sf = font(38)
+    d.text(((W - d.textbbox((0, 0), sub, font=sf)[2])/2, int(H*0.375)), sub, font=sf, fill=(156, 148, 127))
+    badges(img, ['9 种武器', '5 张地图', '5 级BOSS', '排行榜'], W//2, int(H*0.455), font(26))
+    tip = '俯视角波次射击　|　手机竖屏也能玩'
+    tf = font(24, bold=False)
+    d.text(((W - d.textbbox((0, 0), tip, font=tf)[2])/2, int(H*0.545)), tip, font=tf, fill=(124, 118, 101))
+    vignette(img, 165)
+    img.convert('RGB').save(os.path.join(OUT, 'poster.png'))
+    print('written images/poster.png', W, 'x', H)
+
 if __name__ == '__main__':
     make_cover()
     make_banner()
+    make_poster()

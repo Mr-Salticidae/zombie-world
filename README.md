@@ -101,7 +101,10 @@ zombie-world.zip
     └── banner.jpg    # 横幅
 ```
 
-> 封面/横幅可用 `python tools/make_cover.py` 重新生成，或直接替换 `images/` 下的图片为自己的设计。
+> 封面/横幅/海报可用 `python tools/make_cover.py` 重新生成，或直接替换 `images/` 下的图片为自己的设计。
+>
+> `images/poster.png`（1200×900，4:3）是**上传平台用的封面**，不进游戏、也不需要进 zip：
+> Toy 的列表卡片与公开动态卡片按 4:3 取图，3:1 的 `banner.jpg` 放进卡片会被裁掉两头。
 
 ## Toy 平台能力（JS SDK）—— 查证记录 2026-08-07
 
@@ -230,14 +233,15 @@ BOSS 排布：第 1–5 波五级递进，**第 6 波起在前四级之间轮转
 ├── multiplayer.js   # 原生 WebSocket 客端、房间会话与断线重连
 ├── script.js         # 全部游戏逻辑（渲染、输入、波次、敌人/BOSS AI、Web Audio 音效合成）
 ├── images/           # 平台封面素材
-│   ├── logo.png      #   封面
-│   └── banner.jpg    #   横幅
+│   ├── logo.png      #   封面 1280×720
+│   ├── banner.jpg    #   横幅 1920×640
+│   └── poster.png    #   平台封面 1200×900（4:3，上传用，不进游戏）
 ├── server/
 │   └── server.js     # 静态托管、WebSocket 房间与重连服务
 ├── test/
 │   └── server.test.js # 房间、权限、限流与重连测试
 ├── tools/            # 开发辅助脚本（不进 zip）
-│   ├── make_cover.py #   生成封面/横幅
+│   ├── make_cover.py #   生成封面/横幅/平台海报
 │   └── package.ps1   #   打包成平台 zip
 ├── docs/             # 参考文档（不进 zip）
 │   └── toy-responsive-guide.md  # 官方多设备自适应指南
