@@ -46,7 +46,9 @@
   </div>
   <div style="height:20px"></div>
   <button class="btn" id="btnStart">▶ 单人游戏</button>
-  <button class="btn online" id="btnOnline">◉ 2–4 人联机</button>
+  <!-- 联机入口默认藏起来（HTML 里就藏，避免加载瞬间闪一下）；
+       script.js 的 ONLINE_ENABLED 打开后才显示，见那里的说明 -->
+  <button class="btn online hidden" id="btnOnline">◉ 2–4 人联机</button>
   <button class="btn minor" id="btnDiff">难度：标准</button>
   <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
   <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>

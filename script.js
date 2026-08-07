@@ -451,6 +451,12 @@ let wave, spawnQueue, devilQueue, spawnTimer, waveRest, score, kills,
 let gameOverTimer = null;
 
 /* ---------- 多人战局：房主权威，客端只发输入/收快照 ---------- */
+// ⚠️ 联机入口默认关闭。Toy 只托管静态包、不跑 Node，联机必须另有一台公网 WSS 服务器；
+// 没有服务器时那个按钮点进去 100% 是「联机服务器连接中断」，是个必坏的入口。
+// 代码全部保留（multiplayer.js / server/ / test/ 都在）：架好服务器后把这里改成 true，
+// 并在 multiplayer.js 里把默认服务器地址换成你自己的 wss:// 域名，入口就回来了。
+// 排行榜那类「不用自建服务器的多人感」走 Toy JS SDK，见 README。
+const ONLINE_ENABLED = false;
 const net = window.zombieNetwork;
 const PLAYER_COLORS = ['#3f4652','#79d7ff','#ffcb55','#79e39f'];
 let players = new Map();
@@ -2946,7 +2952,10 @@ function leaveMultiplayer(showOnline, reason){
   renderRoom();
 }
 
-document.getElementById('btnOnline').onclick = () => {
+const btnOnline = document.getElementById('btnOnline');
+if (ONLINE_ENABLED) btnOnline.classList.remove('hidden');
+btnOnline.onclick = () => {
+  if (!ONLINE_ENABLED) return;
   onlineServer.value = net.url;
   setScreen('online');
   renderRoom();
@@ -3101,7 +3110,8 @@ document.addEventListener('visibilitychange', () => {
   lastSnapshotSent = performance.now();
   net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
 });
-if (net.hasSavedSession()){
+// 联机入口关闭时也不能自动恢复上一局：否则老玩家一进来就被丢进一个进不去的大厅
+if (ONLINE_ENABLED && net.hasSavedSession()){
   restoringSavedSession = true;
   onlineConsent.checked = true;
   setScreen('online');
@@ -3109,6 +3119,8 @@ if (net.hasSavedSession()){
   net.resumeSavedSession().catch(error => {
     setOnlineStatus(error.message || '会话恢复失败，请重新加入房间。', 'error');
   });
+} else if (!ONLINE_ENABLED){
+  net.disconnect(true);          // 清掉可能残留的会话凭证，别让它在后台重连
 }
 
 document.getElementById('btnStart').onclick = () => {

@@ -31,7 +31,14 @@ npx serve .
 
 然后浏览器访问 `http://localhost:8000/`。推荐使用 Chrome、Edge、Firefox 等现代浏览器。
 
-## 2–4 人联机模式
+## 2–4 人联机模式（入口默认关闭）
+
+> 🔴 **主菜单里的联机入口目前是关掉的**（`script.js` 顶部 `ONLINE_ENABLED = false`）。
+> 联机需要一台**自己的公网 WSS 服务器**——Toy 只托管静态包、不跑 Node。线上没有服务器时，
+> 玩家点进联机大厅只会看到「联机服务器连接中断」，那是个必坏的按钮，所以先摘掉止血。
+> 代码原样保留（`multiplayer.js` / `server/` / `test/`）：把服务器架好、在 `multiplayer.js`
+> 里换掉默认服务器地址，再把 `ONLINE_ENABLED` 改成 `true`，入口就回来了。
+> 关闭状态下也不会自动恢复上一局联机会话，避免老玩家一进来就被丢进进不去的大厅。
 
 联机版采用「WebSocket 房间服务器 + 房主权威模拟」：
 
@@ -94,6 +101,40 @@ zombie-world.zip
 ```
 
 > 封面/横幅可用 `python tools/make_cover.py` 重新生成，或直接替换 `images/` 下的图片为自己的设计。
+
+## Toy 平台能力（JS SDK）—— 查证记录 2026-08-07
+
+结论先写在这：**Toy JS SDK 没有联机 / 实时同步 / 房间能力，不要再指望用它做多人对战。**
+
+核查方式：从发布平台前端包（`//s1.hdslb.com/bfs/static/toy/app/publish/assets/index-*.js`）里取出
+SDK 文档数据，并直接下载 SDK 本体 `//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js` 检索。
+**SDK 版本 1.5.0，更新于 2026-07-31**，全部能力共 18 个：
+
+| 分类 | API | B站 App | Web 端 |
+|---|---|---|---|
+| 容器 | `isSupport` `navigate` | ✅ | ✅ |
+| 容器 | `saveImageToAlbum` `closeBrowser` | ✅ | — |
+| 用户/作者 | `getUserProfile` `getAuthorProfile` `getAuthorVideos` `getAuthorRelation` `getVideoUserActions` | ✅ | ✅ |
+| 云存储 | `setCloudStorage` `getCloudStorage` `removeCloudStorage` | ✅ | ✅ |
+| 排行榜 | `submitScore` `getRankList` `getMyRank` | ✅ | ✅ |
+| 媒体 | `requestCamera` `requestMicrophone` `stopMedia` | ✅ | ✅ |
+
+在 `toy-sdk.js` 里精确检索：`websocket` / `createRoom` / `joinRoom` / `roomId` / `realtime` /
+`multiplayer` / `matchmaking` **均为 0 次命中**。文件里出现 140 多次的 `room` 全部来自
+`liveRoomHalf.*`（B站直播间 JSBridge，SDK 顺带打包的通用桥），与游戏联机无关；
+唯一一处 `RTCPeerConnection` 是 SDK 与宿主容器通信的内部管道，不是对外能力。
+
+要做「不用自建服务器的多人感」，方向是**排行榜 + 云存储**（异步竞争而非实时同框）：
+
+- 排行榜按「toy + 榜位 + 周期」隔离；榜位固定 `1/2/3`（含义自定，如榜1 得分、榜2 波数）；
+  周期 `all`（永久）/ `month` / `week` / `day`
+- 分数为整数，范围 `-16777216 ~ 16777215`，允许 0 与负数；固定从高到低排序，
+  同分先达成者靠前（先到先赢），名次唯一不并列
+- **读榜游客可读**，上报分数需登录；判断是否上榜必须看返回的 `ranked` 字段，**不能用 `score` 判断**
+- 云存储按「登录用户 + Toy」隔离，单个 Toy 最多 128 个 key-value，需登录但不触发用户数据确认
+- 接入前一律先 `await toy.isSupport('xxx')` 判断，SDK 缺失/环境不支持时要能降级
+
+文档入口：发布平台页内路由 `/sdk`（「开放能力」→ JS SDK / CLI / Skill 三个页签）。
 
 ## 操作方式
 
