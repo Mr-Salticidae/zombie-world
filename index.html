@@ -49,6 +49,9 @@
   <!-- 联机入口默认藏起来（HTML 里就藏，避免加载瞬间闪一下）；
        script.js 的 ONLINE_ENABLED 打开后才显示，见那里的说明 -->
   <button class="btn online hidden" id="btnOnline">◉ 2–4 人联机</button>
+  <!-- 排行榜依赖 Toy JS SDK，拿不到 SDK 的环境（本地开发、站外托管）保持隐藏，
+       不留一个点了没反应的按钮 -->
+  <button class="btn minor hidden" id="btnRank">🏆 排行榜</button>
   <button class="btn minor" id="btnDiff">难度：标准</button>
   <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
   <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
@@ -122,6 +125,8 @@
     <b>无双大招</b>：按 <kbd>R</kbd> 或点击右下角图标发动，化身近战大师，双刀乱舞并<b>吸血</b>，持续 15 秒；
     开局自带一次，之后每击杀 <b>50</b> 个敌人重新充能<br>
     主菜单可选 <b>5 种战场地图</b>（带实时预览）与 <b>3 档难度</b>（轻松 / 标准 / 硬核）<br>
+    <b>排行榜</b>：主菜单进，分 <b>得分榜</b> 与 <b>坚守波数榜</b>，各有总榜与本周榜。
+    阵亡结算页可把成绩传上榜（<b>只统计标准难度</b>，轻松 / 硬核 的局不计入）<br>
     <h2 style="margin-top:14px">▍游戏规则</h2>
     抵御从四周涌来的<b>方块头僵尸</b>与会喷火球的<b>红恶魔</b>。<b>每波一只 BOSS，前五波五级递进</b>：
     壮汉巨尸（召唤）→ 掠行猎尸（连环冲锋+毒吐）→ 碎地暴尸（召唤/冲锋/震地）→
@@ -146,8 +151,29 @@
 <div id="over" class="screen hidden">
   <div class="deadtitle">你 阵 亡 了</div>
   <div class="stats" id="finalStats"></div>
+  <div id="overRank" class="over-rank hidden"></div>
+  <button class="btn rank-btn hidden" id="btnUpload">🏆 上传成绩到排行榜</button>
   <button class="btn" id="btnRetry">重新开始</button>
   <button class="btn minor" id="btnMenu">返回主菜单</button>
+</div>
+
+<div id="rank" class="screen hidden">
+  <h1 class="logo" style="font-size:min(8vw,44px)">排行<span>榜</span></h1>
+  <div class="sub">仅 统 计 标 准 难 度</div>
+  <div class="rank-tabs" id="rankBoardTabs">
+    <button class="rank-tab on" data-board="1">得分榜</button>
+    <button class="rank-tab" data-board="2">坚守波数</button>
+  </div>
+  <div class="rank-tabs" id="rankPeriodTabs">
+    <button class="rank-tab on" data-period="all">总榜</button>
+    <button class="rank-tab" data-period="week">本周</button>
+  </div>
+  <div class="rank-panel">
+    <div id="rankStatus" class="rank-status">加载中…</div>
+    <ol id="rankList" class="rank-list"></ol>
+  </div>
+  <div id="rankMine" class="rank-mine hidden"></div>
+  <button class="btn minor" id="btnRankBack">返 回</button>
 </div>
 
 <div id="netHud" class="hidden">
@@ -158,6 +184,10 @@
   <button id="netLeaveBtn">退出联机</button>
 </div>
 
+<!-- Toy JS SDK：排行榜/云存储走它。放在 script.js 之前且不加 defer，
+     让 script.js 顶层就能确定 window.toy 在不在，从而决定要不要显示排行榜入口。
+     CDN 挂了也只是 window.toy 缺失，游戏本体不受影响。 -->
+<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 <script src="multiplayer.js"></script>
 <script src="script.js"></script>
 </body>

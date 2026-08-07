@@ -1068,6 +1068,9 @@ function activateUlt(target){
 function gameOver(){
   if (state === 'dying' || state === 'over') return;
   sfx('boom');
+  // 立刻拍一张成绩快照：reset() 会清掉 score/wave，等玩家点「上传」时早就归零了
+  lastRun = { score, wave, kills, bestMulti, diff:DIF().key,
+              solo:netMode === 'solo', submitted:false };
   for (const p of allPlayers()){
     bloodSplat(p.x, p.y, 26);
     blood(p.x, p.y, 18, true);
@@ -2705,10 +2708,192 @@ function render(){
   drawHUD();
 }
 
+/* ========================================================
+   排行榜（Toy JS SDK）
+   Toy 没有实时联机能力，"多人感"走这条：异步竞争。
+   平台侧规则（照文档）：榜位固定 1/2/3、周期 all/month/week/day、
+   分数为整数且服务端只保留历史最高分（重复上报不会把成绩刷低）、
+   读榜游客可读、上报需登录、是否上榜必须看 ranked 字段而不是 score。
+   ======================================================== */
+const RANK_SCORE = 1, RANK_WAVE = 2;           // 榜1=得分，榜2=坚守波数（榜3 预留）
+const RANK_MAX = 16777215;                     // 平台分数上限
+const RANK_AUTO_KEY = 'zombie-world-rank-auto';
+function toySdk(){ return (typeof window !== 'undefined' && window.toy) || null; }
+function rankReady(){
+  const t = toySdk();
+  return !!(t && typeof t.getRankList === 'function' && typeof t.submitScore === 'function');
+}
+// 只收标准难度：轻松打得轻松、硬核敌人更多分更高，混进同一个榜这榜就没意义了
+function rankEligible(diffKey){ return diffKey === 'normal'; }
+function clampScore(v){ return Math.max(0, Math.min(RANK_MAX, Math.round(Number(v) || 0))); }
+function rankErrText(e){
+  const raw = (e && (e.message || e.msg)) || '';
+  const clean = String(raw).replace(/^\[ToySDK\]\s*/, '').trim();
+  return clean || '排行榜暂时不可用，稍后再试';
+}
+let lastRun = null;        // 结算快照：reset() 会清空全局 score/wave，不能等玩家点按钮时才去读
+
+/* ---------- 结算页：上传成绩 ---------- */
+const overRank = document.getElementById('overRank');
+const btnUpload = document.getElementById('btnUpload');
+function setOverRank(text, kind){
+  overRank.textContent = text || '';
+  overRank.dataset.kind = kind || '';
+  overRank.classList.toggle('hidden', !text);
+}
+function setUploadBtn(mode, label){
+  btnUpload.dataset.mode = mode || '';
+  if (label) btnUpload.textContent = label;
+  btnUpload.classList.toggle('hidden', !mode);
+}
+async function uploadRun(){
+  const t = toySdk();
+  if (!t || !lastRun) throw new Error('没有可上传的成绩');
+  await t.submitScore({ board:RANK_SCORE, score:clampScore(lastRun.score) });
+  await t.submitScore({ board:RANK_WAVE,  score:clampScore(lastRun.wave) });
+  lastRun.submitted = true;
+  localStoreSet(RANK_AUTO_KEY, 'on');      // 同意过一次，之后就自动上传，不再每局点一下
+  try { return await t.getMyRank({ board:RANK_SCORE, period:'all' }); }
+  catch (_) { return null; }
+}
+async function doUpload(){
+  btnUpload.disabled = true;
+  setOverRank('正在上传成绩…');
+  try {
+    const mine = await uploadRun();
+    setUploadBtn('view', '🏆 查看排行榜');
+    setOverRank(mine && mine.ranked
+      ? '已上榜 · 总榜第 ' + mine.rank + ' 名（' + Number(mine.score).toLocaleString() + ' 分）'
+      : '成绩已上传', 'ok');
+  } catch (e){
+    setOverRank(rankErrText(e), 'error');
+    setUploadBtn('upload', '🏆 重试上传');   // 多半是没登录，留着按钮让人重来
+  } finally {
+    btnUpload.disabled = false;
+  }
+}
+function refreshOverRank(){
+  setOverRank('');
+  setUploadBtn('');
+  if (!lastRun || !lastRun.solo || !rankReady()) return;   // 站外环境：一个字都不提排行榜
+  if (!rankEligible(lastRun.diff)){
+    const name = (DIFFS.find(d => d.key === lastRun.diff) || {}).name || '当前';
+    setOverRank('本局是「' + name + '」难度 · 排行榜只统计标准难度');
+    return;
+  }
+  if (lastRun.submitted){ setUploadBtn('view', '🏆 查看排行榜'); return; }
+  if (localStoreGet(RANK_AUTO_KEY) === 'on') doUpload();
+  else setUploadBtn('upload', '🏆 上传成绩到排行榜');
+}
+btnUpload.onclick = () => {
+  if (btnUpload.dataset.mode === 'view'){ openRank('over'); sfx('click'); }
+  else doUpload();
+};
+
+/* ---------- 排行榜页 ---------- */
+const rankStatus = document.getElementById('rankStatus');
+const rankListEl = document.getElementById('rankList');
+const rankMine = document.getElementById('rankMine');
+let rankBoard = RANK_SCORE, rankPeriod = 'all', rankToken = 0, rankReturn = 'menu';
+function rankUnit(){ return rankBoard === RANK_WAVE ? ' 波' : ' 分'; }
+function rankRow(item, unit){
+  const li = document.createElement('li');
+  const no = Number(item && item.rank) || 0;
+  li.className = 'rank-row' + (no >= 1 && no <= 3 ? ' top' + no : '');
+  const cNo = document.createElement('span');
+  cNo.className = 'no'; cNo.textContent = no || '-';
+  const face = document.createElement('img');
+  face.className = 'face'; face.alt = ''; face.loading = 'lazy';
+  if (item && item.avatar) face.src = item.avatar;
+  face.onerror = () => { face.style.visibility = 'hidden'; };
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = (item && item.nickname) || '幸存者';   // 别人的昵称，只走 textContent
+  const pt = document.createElement('span');
+  pt.className = 'pt';
+  pt.textContent = (Number(item && item.score) || 0).toLocaleString() + unit;
+  li.appendChild(cNo); li.appendChild(face); li.appendChild(who); li.appendChild(pt);
+  return li;
+}
+async function loadRank(){
+  const token = ++rankToken;                 // 连点页签时，只认最后一次请求的结果
+  rankListEl.innerHTML = '';
+  rankMine.classList.add('hidden');
+  rankStatus.classList.remove('hidden');
+  rankStatus.dataset.kind = '';
+  rankStatus.textContent = '加载中…';
+  const t = toySdk();
+  if (!t){
+    rankStatus.textContent = '当前环境没有 Toy SDK，排行榜只在 B站 里可用';
+    rankStatus.dataset.kind = 'error';
+    return;
+  }
+  const unit = rankUnit();
+  let list;
+  try {
+    list = await t.getRankList({ board:rankBoard, period:rankPeriod, limit:50 });
+  } catch (e){
+    if (token !== rankToken) return;
+    rankStatus.textContent = rankErrText(e);
+    rankStatus.dataset.kind = 'error';
+    return;
+  }
+  if (token !== rankToken) return;
+  if (!Array.isArray(list) || !list.length){
+    rankStatus.textContent = '这个榜还空着，来当第一个';
+    return;
+  }
+  rankStatus.classList.add('hidden');
+  const rows = [];
+  for (const item of list){
+    const li = rankRow(item, unit);
+    rows.push(li);
+    rankListEl.appendChild(li);
+  }
+  // 我的排名：游客调这个会失败，属于正常情况，静默略过
+  try {
+    const mine = await t.getMyRank({ board:rankBoard, period:rankPeriod });
+    if (token !== rankToken || !mine || !mine.ranked) return;
+    rankMine.textContent = '我的排名：第 ' + mine.rank + ' 名 · ' +
+      (Number(mine.score) || 0).toLocaleString() + unit;
+    rankMine.classList.remove('hidden');
+    const hit = rows[mine.rank - 1];
+    if (hit && Number(list[mine.rank - 1] && list[mine.rank - 1].score) === Number(mine.score)){
+      hit.classList.add('me');
+    }
+  } catch (_) { /* 未登录 */ }
+}
+function bindRankTabs(id, key, set){
+  const box = document.getElementById(id);
+  if (!box || !box.querySelectorAll) return;    // 排行榜是可选功能，缺元素也不该拖垮整个脚本
+  const tabs = box.querySelectorAll('.rank-tab');
+  tabs.forEach(btn => {
+    btn.onclick = () => {
+      tabs.forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      set(btn.dataset[key]);
+      sfx('click');
+      loadRank();
+    };
+  });
+}
+bindRankTabs('rankBoardTabs', 'board', v => { rankBoard = Number(v) || RANK_SCORE; });
+bindRankTabs('rankPeriodTabs', 'period', v => { rankPeriod = v || 'all'; });
+function openRank(from){
+  rankReturn = from || 'menu';
+  setScreen('rank');
+  loadRank();
+}
+const btnRank = document.getElementById('btnRank');
+if (rankReady()) btnRank.classList.remove('hidden');
+btnRank.onclick = () => { openRank('menu'); sfx('click'); };
+document.getElementById('btnRankBack').onclick = () => { setScreen(rankReturn); sfx('click'); };
+
 /* ---------- 界面切换 ---------- */
 const screens = { menu:document.getElementById('menu'), help:document.getElementById('help'),
                   pause:document.getElementById('pause'), over:document.getElementById('over'),
-                  mapsel:document.getElementById('mapsel'), online:document.getElementById('online') };
+                  mapsel:document.getElementById('mapsel'), online:document.getElementById('online'),
+                  rank:document.getElementById('rank') };
 function setScreen(s){
   state = s;
   if (s === 'pause') shake = 0;        // 暂停时立即停止画面抖动
@@ -2725,6 +2910,7 @@ function setScreen(s){
   document.getElementById('netHud').classList.toggle('hidden', !(playing && multiplayerActive()));
   if (!playing){ resetSticks(); hideTouchGuide(); }   // 离开战斗时清掉摇杆，防止手指状态卡住
   if (touchPlay){ refreshSwapBtn(); layoutTouchUI(); }
+  if (s === 'over') refreshOverRank();
   cvs.style.cursor = (playing && controlMode === 'mouse') ? 'none' : 'default';
 }
 const modeBtns = [document.getElementById('btnMode'), document.getElementById('btnMode2')];

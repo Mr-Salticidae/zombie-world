@@ -130,6 +130,45 @@
   #touchGuide .tg-foot b { color:#ffb33e; }
   #touchGuide .tg-foot span { color:#9c947f; font-size:.9em; }
 
+  /* ---------- 排行榜 ---------- */
+  #rank { background:
+      radial-gradient(ellipse at 50% 14%, rgba(255,179,62,.16), transparent 52%),
+      linear-gradient(180deg,#16150f,#0b0d10 62%,#160f0c); }
+  #rank > * { position:relative; z-index:1; }
+  .rank-tabs { display:flex; gap:8px; margin-top:14px; }
+  .rank-tab { padding:8px 18px; min-height:38px; border:2px solid #3a4048; background:#171a1e;
+    color:#9c947f; font:700 14px inherit; letter-spacing:.12em; cursor:pointer; }
+  .rank-tab.on { border-color:#ffb33e; background:#2a2114; color:#ffca55; }
+  .rank-panel { width:min(94vw,520px); margin-top:16px; padding:10px;
+    border:3px solid #3a4048; background:rgba(17,20,23,.94); box-shadow:0 8px 0 #000; }
+  .rank-status { padding:16px 8px; color:#9c947f; font-size:13px; line-height:1.7; }
+  .rank-status[data-kind="error"] { color:#ff786d; }
+  .rank-list { list-style:none; max-height:min(46vh,340px); overflow-y:auto; text-align:left; }
+  .rank-row { display:flex; align-items:center; gap:10px; padding:7px 8px;
+    border-bottom:1px solid #23282d; color:#d8d2c2; font-size:13px; }
+  .rank-row:last-child { border-bottom:0; }
+  .rank-row .no { flex:0 0 34px; text-align:center; font-weight:900; color:#7d7665; }
+  .rank-row.top1 .no { color:#ffca55; } .rank-row.top2 .no { color:#d6dde3; }
+  .rank-row.top3 .no { color:#d9924a; }
+  .rank-row .face { flex:0 0 26px; width:26px; height:26px; border-radius:50%;
+    background:#23282d; object-fit:cover; }
+  .rank-row .who { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .rank-row .pt { flex:0 0 auto; font-weight:800; color:#ffb33e; font-variant-numeric:tabular-nums; }
+  .rank-row.me { background:rgba(255,179,62,.12); }
+  .rank-mine { width:min(94vw,520px); margin-top:10px; padding:9px 12px;
+    border:1px solid #57503f; background:rgba(38,34,26,.72); color:#d8d2c2; font-size:13px; }
+  .rank-mine b { color:#ffca55; font-size:1.15em; }
+  #rank .btn.minor { margin-top:18px; }
+  /* 结算页的上榜区 */
+  .over-rank { margin:10px 0 2px; font-size:14px; line-height:1.8; color:#9c947f; }
+  .over-rank b { color:#ffca55; font-size:1.2em; }
+  .over-rank[data-kind="ok"] { color:#ffca55; font-weight:700; }
+  .over-rank[data-kind="error"] { color:#ff786d; }
+  .btn.rank-btn { background:linear-gradient(180deg,#c8912b,#7a5411); border-color:#ffca55;
+    font-size:min(4.2vw,17px); padding:12px 34px; letter-spacing:.2em; }
+  .btn.rank-btn:hover { background:linear-gradient(180deg,#e2a733,#94661a); }
+  .btn.rank-btn:disabled { opacity:.5; }
+
   /* ---------- 2–4 人联机大厅 ---------- */
   #online { background:
       radial-gradient(ellipse at 50% 12%, rgba(62,132,153,.22), transparent 48%),
