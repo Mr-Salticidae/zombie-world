@@ -11,8 +11,29 @@ const rotateTip = document.getElementById('rotate');
 let VW = 960, VH = 640;            // 视口（虚拟坐标系）：横屏 960×640，竖屏换成竖版比例
 const WW = 1920, WH = 1280;        // 世界尺寸
 const VIEW_AREA = 960 * 640;       // 可视面积恒定：竖屏不会因为看得更少而凭空变难
-let viewScale = 1;                 // 一个虚拟像素当前占几个屏幕像素
+let viewScale = 1;                 // 一个虚拟像素占几个 CSS 像素
+let renderScale = 1;               // 一个虚拟像素占几个物理像素 = viewScale × dpr，受画质档限制
+let groundScale = 1;               // 地面预渲染倍率，步进 1 / 1.5 / 2
 const ULT_BTN = { x: VW-52, y: VH-104, r: 28 };   // PC 端画在画布里的无双圆钮
+
+/* ---------- 画质 ----------
+   画面糊的根因：画布后备缓冲区一直是 VW×VH 个像素，却被 CSS 拉伸到整块屏幕。
+   2K 屏上等于把 960 宽的位图放大 2.25 倍，再叠上 devicePixelRatio，越大屏越糊。
+   解法是让后备缓冲区按「CSS 尺寸 × dpr」出真实物理像素，绘制坐标仍用虚拟坐标系
+   （ctx 基准变换负责换算），游戏逻辑一行都不用改。 */
+const QUALITIES = [
+  { key:'auto', name:'自动', tip:'跟随屏幕分辨率' },
+  { key:'low',  name:'流畅', tip:'低分辨率，最省性能' },
+  { key:'high', name:'极清', tip:'榨干屏幕，老机器慎选' },
+];
+const QUALITY_KEY = 'zombie-world-quality';
+let qualityIndex = 0;
+function qualityCap(){
+  const key = QUALITIES[qualityIndex].key;
+  if (key === 'low') return 1;
+  if (key === 'high') return 3;
+  return isPhone() ? 2 : 2.5;      // 自动：手机压一点，别把低端机烧了
+}
 
 // 多设备环境判断（参照 Toy 多设备自适应指南：组合 pointer/hover/visualViewport，不只看 UA）
 const coarsePointer = matchMedia('(pointer: coarse)').matches;
@@ -33,12 +54,25 @@ function applyViewport(availW, availH){
   vw = Math.min(vw, WW); vh = Math.min(vh, WH);
   if (vw === VW && vh === VH) return;
   VW = vw; VH = vh;
-  cvs.width = VW; cvs.height = VH;
   ULT_BTN.x = VW - 52; ULT_BTN.y = VH - 104;
   if (cam){                                   // 视口变了，镜头范围要重新夹紧
     cam.x = Math.max(0, Math.min(WW-VW, cam.x));
     cam.y = Math.max(0, Math.min(WH-VH, cam.y));
   }
+}
+
+// 后备缓冲区按物理像素出图；绘制坐标仍是虚拟坐标，靠 ctx 基准变换换算
+function applyRenderScale(){
+  const dpr = Math.max(1, Math.min(4, window.devicePixelRatio || 1));
+  const want = Math.max(1, Math.min(qualityCap(), viewScale * dpr));
+  const w = Math.max(1, Math.round(VW * want));
+  const h = Math.max(1, Math.round(VH * want));
+  if (cvs.width === w && cvs.height === h) return;
+  cvs.width = w; cvs.height = h;                 // 改尺寸会清空画布并重置 ctx 状态
+  renderScale = want;
+  // 用实际像素数算比例，避免上面取整后累积出半像素偏移
+  ctx.setTransform(w / VW, 0, 0, h / VH, 0, 0);
+  syncGroundScale();
 }
 
 // 画布按容器尺寸等比缩放（扣除安全区内边距）；逻辑用虚拟坐标，渲染时映射真实像素
@@ -50,7 +84,9 @@ function fit(){
   viewScale = Math.min(availW / VW, availH / VH);
   cvs.style.width  = Math.round(VW * viewScale) + 'px';
   cvs.style.height = Math.round(VH * viewScale) + 'px';
+  applyRenderScale();
   layoutTouchUI();
+  refreshQualityBtn();          // 窗口变了实际倍率也会变，按钮上的数字跟着走
 }
 
 function localStoreGet(key){
@@ -329,8 +365,21 @@ const MAPS = [
 ];
 let mapIndex = 0;
 
+// 地面是一整张世界大图，跟着渲染倍率升清但要封顶：2 倍时已是 3840×2560（约 39MB），
+// 再往上手机会吃不住。步进取 1 / 1.5 / 2，跨档才重建，拖窗口不会反复重画。
+function syncGroundScale(){
+  const cap = isPhone() ? 1.5 : 2;
+  const s = Math.min(cap, Math.max(1, renderScale));
+  const step = s >= 2 ? 2 : (s >= 1.5 ? 1.5 : 1);
+  if (step === groundScale) return;
+  groundScale = step;
+  buildGround();
+}
 function buildGround(){
   const m = MAPS[mapIndex];
+  const w = Math.round(WW * groundScale), h = Math.round(WH * groundScale);
+  if (ground.width !== w || ground.height !== h){ ground.width = w; ground.height = h; }
+  gctx.setTransform(w / WW, 0, 0, h / WH, 0, 0);   // 底下所有绘制照旧用世界坐标
   rngSeed = 7;
   gctx.fillStyle = m.base;                     // 地面底色
   gctx.fillRect(0, 0, WW, WH);
@@ -2508,8 +2557,9 @@ function render(){
   const cx = cam.x + sx, cy = cam.y + sy;
   ctx.save();
   ctx.translate(-cx|0, -cy|0);
-  // 地面 + 血迹（只画可视区域）
-  ctx.drawImage(ground, cx|0, cy|0, VW, VH, cx|0, cy|0, VW, VH);
+  // 地面 + 血迹（只画可视区域）。源矩形按地面位图的像素算，目标仍是世界坐标
+  const gs = ground.width / WW;
+  ctx.drawImage(ground, (cx|0)*gs, (cy|0)*gs, VW*gs, VH*gs, cx|0, cy|0, VW, VH);
   // 血迹/焦痕/尸体贴片：15 秒寿命，最后 3 秒淡出
   for (let i = decals.length-1; i >= 0; i--){
     const d = decals[i];
@@ -2939,6 +2989,23 @@ btnDiff.onclick = () => {
   sfx('click');
 };
 refreshDiffBtn();
+/* ---------- 画质（分辨率倍率） ---------- */
+const btnQuality = document.getElementById('btnQuality');
+const savedQuality = QUALITIES.findIndex(q => q.key === localStoreGet(QUALITY_KEY));
+if (savedQuality >= 0) qualityIndex = savedQuality;
+function refreshQualityBtn(){
+  const q = QUALITIES[qualityIndex];
+  // 顺带把实际渲染倍率写出来，玩家能直接看出这一档到底有没有生效
+  btnQuality.textContent = '画质：' + q.name + '（' + renderScale.toFixed(1) + '×）';
+}
+btnQuality.onclick = () => {
+  qualityIndex = (qualityIndex + 1) % QUALITIES.length;
+  localStoreSet(QUALITY_KEY, QUALITIES[qualityIndex].key);
+  fit();                       // 立刻按新档重建后备缓冲区
+  refreshQualityBtn();
+  sfx('click');
+};
+refreshQualityBtn();
 /* ---------- 地图选择页：五张缩略图卡片 ---------- */
 const btnMap = document.getElementById('btnMap');
 const mapGrid = document.getElementById('mapgrid');
@@ -2950,8 +3017,9 @@ function makeThumb(mi){
   const cv = document.createElement('canvas');
   cv.width = 224; cv.height = 126;
   const c = cv.getContext('2d');
+  const gs = ground.width / WW;
   const srcH = WW * 126 / 224;
-  c.drawImage(ground, 0, 0, WW, srcH, 0, 0, 224, 126);
+  c.drawImage(ground, 0, 0, WW*gs, srcH*gs, 0, 0, 224, 126);
   // 叠一个示意石柱
   c.fillStyle = MAPS[mi].pil[2];
   c.strokeStyle = '#23211d'; c.lineWidth = 1.5;
