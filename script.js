@@ -856,7 +856,13 @@ addEventListener('mouseup', e => {
   if (e.button === 2) mouse.rdown = false;
 });
 cvs.addEventListener('mouseleave', () => { mouse.down = false; mouse.rdown = false; });
-cvs.addEventListener('contextmenu', e => e.preventDefault());
+// 长按/右键菜单全局禁掉：手机上长按是开火，桌面鼠标模式下右键是移动指令，
+// 两种情况都不该弹菜单。输入框放行，联机大厅要能右键粘贴。
+addEventListener('contextmenu', e => {
+  const t = e.target;
+  if (t && t.closest && t.closest('input, textarea')) return;
+  e.preventDefault();
+});
 
 /* ---------- 碰撞（世界边界 + 石柱圆形体 + 油桶） ---------- */
 function collide(o){

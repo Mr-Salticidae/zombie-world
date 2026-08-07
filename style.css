@@ -1,4 +1,12 @@
-  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  /* 手机长按会弹出「选择/全选/拷贝」气泡、放大镜和图片保存菜单，
+     而本作「按住右半屏 = 开火」正是一次长按，两者会打架：一边射击一边选文字。
+     全局禁掉长按菜单与文字选择；输入框单独放行，联机大厅还要能打字粘贴。 */
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none; -webkit-user-select:none; -moz-user-select:none;
+    -ms-user-select:none; user-select:none; }
+  input, textarea { -webkit-user-select:text; -moz-user-select:text;
+    -ms-user-select:text; user-select:text; }
+  img { -webkit-user-drag:none; }
   html,body { width:100%; height:100%; background:#0b0d10; overflow:hidden; touch-action:none;
     font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; }
   #wrap { position:fixed; left:0; top:0; width:100vw; height:100vh; height:100dvh;
