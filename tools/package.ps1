@@ -3,13 +3,14 @@
 #     index.html  (required entry)
 #     style.css
 #     script.js
+#     multiplayer.js
 #     images/  (logo.png, banner.jpg)
 # Usage:  powershell -ExecutionPolicy Bypass -File tools\package.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-$items = @('index.html', 'style.css', 'script.js', 'images')
+$items = @('index.html', 'style.css', 'script.js', 'multiplayer.js', 'images')
 foreach ($i in $items) {
   if (-not (Test-Path $i)) { throw "Missing required item: $i" }
 }

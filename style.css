@@ -52,6 +52,9 @@
   #btnStart { background:linear-gradient(180deg,#e03c31,#9c1f17); border-color:#ff8a7a;
     animation:btnPulse 1.7s ease-in-out infinite; }
   #btnStart:hover { background:linear-gradient(180deg,#ff5a4d,#b8281d); }
+  #btnOnline { margin-top:10px; background:linear-gradient(180deg,#273e49,#17242b);
+    border-color:#5e8795; animation:none; }
+  #btnOnline:hover { background:linear-gradient(180deg,#3b6675,#223b45); border-color:#86c2d4; }
   @keyframes btnPulse { 50% { box-shadow:0 5px 0 #000, 0 0 28px rgba(224,60,49,.55); } }
   .float-z { position:absolute; font-size:54px; opacity:.11; filter:grayscale(.35);
     animation:drift 11s ease-in-out infinite; pointer-events:none; user-select:none; z-index:0 !important; }
@@ -78,24 +81,124 @@
     border-radius:50%; background:rgba(255,255,255,.08); display:none; }
   #touchUI .nub { position:absolute; width:52px; height:52px; border-radius:50%;
     background:rgba(40,30,20,.35); left:34px; top:34px; }
-  #swapBtn { position:fixed; top:max(10px,env(safe-area-inset-top)); right:max(12px,env(safe-area-inset-right)); z-index:6;
-    min-width:44px; min-height:44px; padding:10px 16px; font-size:14px; font-weight:700; color:#f2efe4;
-    background:rgba(30,26,20,.85); border:2px solid #57503f; border-radius:8px; display:none; }
-  /* ---------- 触屏无双大招按钮（与切换武器键同属游戏 UI 风格，圆形+红色区分） ---------- */
-  #ultBtn { position:fixed; right:max(12px,env(safe-area-inset-right)); bottom:max(14px,env(safe-area-inset-bottom));
-    z-index:6; width:66px; height:66px; border-radius:50%; display:none;
-    font-size:15px; font-weight:800; letter-spacing:.04em; color:#f2efe4;
-    background:rgba(30,26,20,.85); border:2px solid #57503f; box-shadow:0 3px 0 #000; }
+  /* 常驻摇杆虚位：告诉新玩家左边走、右边打（纯提示，不吃触摸） */
+  #touchUI .ghost { position:absolute; width:112px; height:112px; margin:-56px 0 0 -56px;
+    border:2px dashed rgba(247,244,234,.34); border-radius:50%; display:none;
+    align-items:center; justify-content:center; }
+  #touchUI .ghost span { font-size:12px; font-weight:700; letter-spacing:.16em;
+    color:rgba(247,244,234,.6); text-shadow:0 1px 3px rgba(0,0,0,.85); }
+  #touchUI .ghost.on { display:flex; }
+  #touchUI .ghost.fade { opacity:.42; }
+  /* ---------- 触屏按钮：位置由 JS 按画布实际位置摆，避免压住底部武器栏 ---------- */
+  #swapBtn, #ultBtn, #pauseBtn { position:fixed; z-index:6; display:none;
+    color:#f2efe4; background:rgba(30,26,20,.85); border:2px solid #57503f;
+    box-shadow:0 3px 0 #000; padding:0; }
+  #swapBtn { width:66px; height:66px; border-radius:12px; line-height:1.15; }
+  #swapBtn b { display:block; font-size:15px; font-weight:800; letter-spacing:.06em; }
+  #swapBtn i { display:block; font-style:normal; font-size:11px; color:#ffb33e;
+    overflow:hidden; white-space:nowrap; }
+  #pauseBtn { width:42px; height:42px; border-radius:8px; font-size:13px; letter-spacing:.1em; }
+  #ultBtn { width:66px; height:66px; border-radius:50%;
+    font-size:15px; font-weight:800; letter-spacing:.04em; }
   #ultBtn[data-s="ready"] { background:linear-gradient(180deg,#e03c31,#9c1f17); border-color:#ffe23e;
     animation:ultPulse 1.4s ease-in-out infinite; }
   #ultBtn[data-s="active"] { background:rgba(255,179,62,.95); border-color:#fff; color:#2a0707; }
   #ultBtn[data-s="charge"] { opacity:.82; }
   @keyframes ultPulse { 50% { box-shadow:0 3px 0 #000, 0 0 22px rgba(224,60,49,.6); } }
-  /* ---------- 手机竖屏旋转提示 ---------- */
-  #rotate { position:fixed; inset:0; z-index:60; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; text-align:center; background:#0b0d10; color:#e8e4d8;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  #rotate .rot-icon { font-size:72px; line-height:1; animation:rotHint 1.8s ease-in-out infinite; }
-  #rotate .rot-title { margin-top:20px; font-size:24px; font-weight:900; color:#e03c31; letter-spacing:.12em; }
-  #rotate .rot-sub { margin-top:10px; font-size:14px; color:#9c947f; letter-spacing:.05em; }
-  @keyframes rotHint { 0%,100%{transform:rotate(-15deg)} 50%{transform:rotate(75deg)} }
+  /* ---------- 手机竖屏提示：只是一条可关掉的横幅，绝不挡玩 ---------- */
+  #rotate { position:fixed; z-index:40; left:50%; transform:translateX(-50%);
+    top:calc(env(safe-area-inset-top) + 8px); max-width:min(92vw,420px);
+    display:flex; align-items:center; gap:8px; padding:8px 10px;
+    border:1px solid #57503f; border-radius:8px; background:rgba(14,12,9,.92); color:#d8d2c2; }
+  #rotate .rot-icon { font-size:20px; line-height:1; animation:rotHint 2.4s ease-in-out infinite; }
+  #rotate .rot-text { font-size:12.5px; letter-spacing:.04em; }
+  #rotate button { flex:0 0 auto; min-height:28px; padding:4px 10px; border:1px solid #57503f;
+    border-radius:5px; background:#26221a; color:#f2efe4; font:700 12px inherit; }
+  @keyframes rotHint { 0%,86%,100%{transform:rotate(0)} 93%{transform:rotate(78deg)} }
+  /* ---------- 触屏首次操作引导 ---------- */
+  /* pointer-events:none —— 关掉它的那一下手指要照常算进操作，不能被浮层吃掉 */
+  #touchGuide { position:fixed; inset:0; z-index:8; display:flex; flex-wrap:wrap;
+    pointer-events:none; color:#f2efe4; background:rgba(8,10,13,.62); transition:opacity .4s; }
+  #touchGuide.out { opacity:0; }
+  #touchGuide .tg-half { flex:1 1 50%; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; padding:16px;
+    font-size:min(3.6vw,15px); line-height:1.9; letter-spacing:.04em; }
+  #touchGuide .tg-half b { display:block; margin-bottom:6px; font-size:min(4.6vw,19px); color:#ffb33e; }
+  #touchGuide .tg-left { border-right:2px dashed rgba(247,244,234,.3); }
+  #touchGuide .tg-foot { flex:1 0 100%; align-self:flex-end; padding:0 16px 26px;
+    text-align:center; font-size:min(3.2vw,13px); line-height:2; color:#d8d2c2; }
+  #touchGuide .tg-foot b { color:#ffb33e; }
+  #touchGuide .tg-foot span { color:#9c947f; font-size:.9em; }
+
+  /* ---------- 2–4 人联机大厅 ---------- */
+  #online { background:
+      radial-gradient(ellipse at 50% 12%, rgba(62,132,153,.22), transparent 48%),
+      radial-gradient(ellipse at 50% 100%, rgba(224,60,49,.12), transparent 48%),
+      linear-gradient(180deg,#12171b,#0b0d10 62%,#130d0d); }
+  #online > * { position:relative; z-index:1; }
+  .online-panel { width:min(92vw,560px); margin-top:22px; padding:22px;
+    border:3px solid #3a4048; background:rgba(17,20,23,.94);
+    box-shadow:0 8px 0 #000, 0 18px 50px rgba(0,0,0,.45); }
+  .online-field { display:grid; grid-template-columns:112px 1fr; gap:12px; align-items:center;
+    margin:10px 0; text-align:left; color:#a9a394; font-size:13px; letter-spacing:.08em; }
+  .online-field input, .join-row input { min-width:0; height:42px; padding:0 12px;
+    border:2px solid #4a5159; border-radius:2px; outline:none;
+    background:#0c0f12; color:#f2efe4; font:700 15px inherit; letter-spacing:.06em; }
+  .online-field input:focus, .join-row input:focus { border-color:#79b6c9;
+    box-shadow:0 0 0 2px rgba(121,182,201,.14); }
+  .online-consent { display:flex; gap:9px; align-items:flex-start; margin:12px 0 4px;
+    text-align:left; color:#858d91; font-size:11px; line-height:1.55; }
+  .online-consent input { width:16px; height:16px; margin-top:1px; flex:0 0 auto; accent-color:#4c9db5; }
+  .online-actions { display:flex; align-items:stretch; gap:12px; margin-top:18px; }
+  .online-actions > .btn { flex:1; margin:0; padding:11px 16px; font-size:16px; }
+  .join-row { display:flex; flex:1; gap:8px; }
+  .join-row input { width:100%; text-align:center; text-transform:uppercase; font-size:18px; }
+  .join-row .btn { margin:0; padding:10px 18px; white-space:nowrap; }
+  .online-status { min-height:22px; margin-top:14px; color:#9c947f; font-size:13px; line-height:1.55; }
+  .online-status[data-kind="error"] { color:#ff786d; }
+  .online-status[data-kind="ok"] { color:#76d7a1; }
+  .room-code-line { margin:16px 0 12px; color:#aaa394; font-size:14px; letter-spacing:.08em; }
+  .room-code-line strong { margin-left:8px; color:#ffca55; font-size:25px; letter-spacing:.2em; }
+  .tiny-btn { margin-left:8px; padding:5px 9px; border:1px solid #575f68; border-radius:3px;
+    background:#20262b; color:#d8d2c2; cursor:pointer; }
+  .room-meta { margin-bottom:10px; color:#7f9eaa; font-size:12px; }
+  .room-players { display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:left; }
+  .room-player { display:flex; align-items:center; gap:8px; min-height:42px; padding:8px 10px;
+    border:1px solid #353b41; background:#101316; color:#d8d2c2; font-size:13px; }
+  .room-player.empty { color:#575f68; border-style:dashed; }
+  .room-player .slot { display:grid; place-items:center; width:24px; height:24px; flex:0 0 auto;
+    border-radius:50%; background:#29343a; color:#a8d6e3; font-weight:900; }
+  .room-player .name { min-width:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .room-player .tag { color:#ffca55; font-size:10px; }
+  .room-player.ready .tag { color:#65db98; }
+  .room-player.offline { opacity:.55; }
+  .room-actions { display:flex; gap:10px; justify-content:center; margin-top:14px; }
+  .room-actions .btn { flex:1; margin:0; padding:10px 12px; font-size:14px; }
+  .room-actions .btn:disabled { opacity:.36; cursor:not-allowed; transform:none; box-shadow:0 5px 0 #000; }
+  .online-footer { display:flex; gap:10px; }
+  .online-footer .btn { margin-top:14px; }
+
+  /* ---------- 局内网络状态 ---------- */
+  #netHud { position:fixed; left:max(12px,env(safe-area-inset-left)); top:max(10px,env(safe-area-inset-top));
+    z-index:7; display:flex; align-items:center; gap:8px; padding:7px 9px;
+    border:1px solid rgba(145,188,201,.45); border-radius:4px;
+    background:rgba(9,13,16,.82); color:#a7b7bd; font-size:11px; pointer-events:auto; }
+  #netHud b { color:#ffca55; letter-spacing:.12em; }
+  #netRole { color:#7fd2e8; font-weight:800; }
+  #netPing { color:#7f8c91; }
+  #netLeaveBtn { padding:4px 7px; border:1px solid #70413d; border-radius:3px;
+    background:#2b1716; color:#e9b0aa; font-size:11px; cursor:pointer; }
+
+  @media (max-width:600px), (max-height:560px) {
+    .online-panel { margin-top:12px; padding:14px; }
+    .online-field { grid-template-columns:92px 1fr; margin:7px 0; }
+    .online-actions { margin-top:12px; }
+    .room-code-line { margin-top:10px; }
+    .online-footer .btn { margin-top:8px; }
+  }
+  @media (max-width:460px) {
+    .online-actions { flex-direction:column; }
+    .room-players { grid-template-columns:1fr; }
+    .online-footer { flex-direction:column; width:min(92vw,560px); }
+    .online-footer .btn { width:100%; margin-top:6px; }
+  }

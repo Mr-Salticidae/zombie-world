@@ -10,17 +10,26 @@
 <div id="wrap"><canvas id="game" width="960" height="640"></canvas></div>
 
 <div id="rotate" class="hidden">
-  <div class="rot-icon">📱</div>
-  <div class="rot-title">请旋转到横屏</div>
-  <div class="rot-sub">本游戏为横版视角，横屏体验最佳</div>
+  <span class="rot-icon">📱</span>
+  <span class="rot-text">竖屏也能玩 · 横过来视野更宽</span>
+  <button id="rotateOk">知道了</button>
 </div>
 
 <div id="touchUI">
+  <div class="ghost" id="ghostL"><span>移动</span></div>
+  <div class="ghost" id="ghostR"><span>瞄准射击</span></div>
   <div class="stick" id="stickL"><div class="nub" id="nubL"></div></div>
   <div class="stick" id="stickR"><div class="nub" id="nubR"></div></div>
 </div>
-<button id="swapBtn">切换武器</button>
+<button id="swapBtn"><b>换枪</b><i id="swapName">手枪</i></button>
 <button id="ultBtn">无双</button>
+<button id="pauseBtn">❚❚</button>
+
+<div id="touchGuide" class="hidden">
+  <div class="tg-half tg-left"><b>① 左半边</b>按住拖动<br>控制移动</div>
+  <div class="tg-half tg-right"><b>② 右半边</b>按住就开火<br>拖动决定射击方向</div>
+  <div class="tg-foot">③ 右下角 <b>换枪</b> / <b>无双</b>　·　也可以直接点最下面那排武器格换枪<br><span>碰一下屏幕就开打，这层说明会自己消失</span></div>
+</div>
 
 <div id="menu" class="screen">
   <div class="float-z z1">🧟</div>
@@ -36,11 +45,56 @@
     <div class="badge">无双<b>大招</b></div>
   </div>
   <div style="height:20px"></div>
-  <button class="btn" id="btnStart">▶ 开始游戏</button>
+  <button class="btn" id="btnStart">▶ 单人游戏</button>
+  <button class="btn online" id="btnOnline">◉ 2–4 人联机</button>
+  <button class="btn minor" id="btnDiff">难度：标准</button>
   <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
   <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
   <button class="btn minor" id="btnHelp">操作说明</button>
   <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
+</div>
+
+<div id="online" class="screen hidden">
+  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">多人<span>联机</span></h1>
+  <div class="sub">2–4 人 · 合作守住同一片战场</div>
+  <div class="online-panel">
+    <label class="online-field">
+      <span>玩家昵称</span>
+      <input id="onlineName" maxlength="12" autocomplete="nickname" placeholder="幸存者">
+    </label>
+    <label class="online-field">
+      <span>联机服务器</span>
+      <input id="onlineServer" inputmode="url" autocomplete="url" placeholder="ws://localhost:8080/ws">
+    </label>
+    <label class="online-consent">
+      <input id="onlineConsent" type="checkbox">
+      <span>我同意为联机临时传输昵称、操作输入与战局状态；服务器不要求登录、不保存聊天或长期战绩。</span>
+    </label>
+    <div id="onlineJoin" class="online-actions">
+      <button class="btn" id="btnCreateRoom">创建房间</button>
+      <div class="join-row">
+        <input id="roomCodeInput" maxlength="6" autocomplete="off" placeholder="房间码">
+        <button class="btn minor" id="btnJoinRoom">加入</button>
+      </div>
+    </div>
+    <div id="roomPanel" class="hidden">
+      <div class="room-code-line">房间码 <strong id="roomCode">——</strong>
+        <button id="btnCopyCode" class="tiny-btn">复制</button>
+      </div>
+      <div id="roomMeta" class="room-meta"></div>
+      <div id="roomPlayers" class="room-players"></div>
+      <div class="room-actions">
+        <button class="btn minor" id="btnRoomMap">地图</button>
+        <button class="btn minor" id="btnReady">准备</button>
+        <button class="btn" id="btnRoomStart">开始战斗</button>
+      </div>
+    </div>
+    <div id="onlineStatus" class="online-status" role="status">输入昵称后创建或加入房间</div>
+  </div>
+  <div class="online-footer">
+    <button class="btn minor" id="btnLeaveRoom">离开房间</button>
+    <button class="btn minor" id="btnOnlineBack">返回主菜单</button>
+  </div>
 </div>
 
 <div id="mapsel" class="screen hidden">
@@ -52,19 +106,26 @@
 
 <div id="help" class="screen hidden">
   <div class="help-box">
-    <h2>▍操作说明</h2>
+    <h2>▍手机 / 平板怎么玩</h2>
+    <b>射击</b>：手指按住<b>屏幕右半边</b>就会开火；按住不动打的是当前朝向，<b>拖动</b>则朝拖的方向瞄准。<br>
+    <b>移动</b>：手指按住<b>屏幕左半边</b>拖动，就地生成摇杆。<br>
+    <b>换武器</b>：点右下角 <b>换枪</b> 键循环切换（自动跳过没子弹的枪）；也可以<b>直接点最下面那排武器格</b>指定一把。<br>
+    <b>无双</b>：点右下角红色圆键。<b>暂停</b>：点左上角 ❚❚。<br>
+    <b>竖屏也能玩</b>：竖屏会自动换成竖版视野，横过来则是宽视野，不用非得转屏。<br>
+    <h2 style="margin-top:14px">▍电脑操作</h2>
     <b>键盘经典模式</b>：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键移动，朝面对方向射击<br>
     <b>鼠标射击模式</b>：<b>左键</b>点击/按住朝指针方向<b>攻击</b>；<b>右键</b>点击移动到该点、按住持续跟随；也可用 WASD 移动<br>
     射击：左键 / <kbd>空格</kbd> / <kbd>J</kbd>（可按住连射）<br>
     切换武器：<b>鼠标滚轮</b> / <kbd>Q</kbd> <kbd>E</kbd> / 数字键 <kbd>1</kbd>－<kbd>9</kbd> ｜ 暂停：<kbd>P</kbd> / <kbd>Esc</kbd><br>
     <b>无双大招</b>：按 <kbd>R</kbd> 或点击右下角图标发动，化身近战大师，双刀乱舞并<b>吸血</b>，持续 15 秒；
     开局自带一次，之后每击杀 <b>50</b> 个敌人重新充能<br>
-    主菜单可选 <b>5 种战场地图</b>（带实时预览）｜ 触屏：左摇杆移动，右摇杆瞄准射击<br>
+    主菜单可选 <b>5 种战场地图</b>（带实时预览）与 <b>3 档难度</b>（轻松 / 标准 / 硬核）<br>
     <h2 style="margin-top:14px">▍游戏规则</h2>
-    抵御从四周涌来的<b>方块头僵尸</b>与会喷火球的<b>红恶魔</b>。<b>每波一只 BOSS，共五级递进</b>：
+    抵御从四周涌来的<b>方块头僵尸</b>与会喷火球的<b>红恶魔</b>。<b>每波一只 BOSS，前五波五级递进</b>：
     壮汉巨尸（召唤）→ 掠行猎尸（连环冲锋+毒吐）→ 碎地暴尸（召唤/冲锋/震地）→
     灾祸巨像（再加全向弹幕）→ <b>僵尸博士</b>（巨大体型·全技能·毒池·残血狂暴）。
-    脚下红圈/绿圈是技能预警，快躲开！击破 BOSS 必掉补给。
+    第 6 波起 BOSS 在前四级之间<b>轮转</b>并逐波变强，<b>每逢 5 的倍数波</b>僵尸博士再次登场。
+    脚下红圈/绿圈是技能预警，快躲开！击破 BOSS 必掉补给，<b>每波打完还会回复生命</b>。
     连续击杀提升<b>连击倍数</b>，
     倍数达到 <b>×3 / ×5 / ×8 / ×11 / ×13 / ×15 / ×17 / ×20</b> 依次解锁：
     马格南、乌兹冲锋枪、霰弹枪、加特林、手雷、油桶、喷火器、火箭筒。
@@ -87,6 +148,15 @@
   <button class="btn minor" id="btnMenu">返回主菜单</button>
 </div>
 
+<div id="netHud" class="hidden">
+  <span id="netRole">联机</span>
+  <b id="netRoom">——</b>
+  <span id="netCount">1/4</span>
+  <span id="netPing">-- ms</span>
+  <button id="netLeaveBtn">退出联机</button>
+</div>
+
+<script src="multiplayer.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

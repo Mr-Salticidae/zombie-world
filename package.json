@@ -1,0 +1,17 @@
+{
+  "name": "zombie-world-multiplayer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static game host and WebSocket room relay for Zombie World.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
