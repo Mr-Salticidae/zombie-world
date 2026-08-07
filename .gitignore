@@ -19,3 +19,7 @@ node_modules/
 # Build output (打包产物，可由 tools/package.ps1 重新生成)
 release/
 *.zip
+
+# Python
+__pycache__/
+*.pyc
