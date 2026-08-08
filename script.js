@@ -448,18 +448,42 @@ function scorch(x, y, r){
 /* ========================================================
    游戏状态
    ======================================================== */
+// aim = 这把枪的自动锁敌半径，按弹速 × 存活时间算的实际射程取整，
+// 免得锁上一个根本打不到的目标白烧子弹（喷火器只有一百多，火箭筒能锁满屏）。
 const WEAPONS = [
-  { name:'手枪',   icon:'pistol',  rate:270, auto:false, unlock:1,  infinite:true,  give:0   },
-  { name:'马格南', icon:'magnum',  rate:430, auto:false, unlock:3,  infinite:false, give:60  },
-  { name:'乌兹',   icon:'uzi',     rate:85,  auto:true,  unlock:5,  infinite:false, give:150 },
-  { name:'霰弹枪', icon:'shotgun', rate:620, auto:false, unlock:8,  infinite:false, give:40  },
-  { name:'加特林', icon:'gatling', rate:55,  auto:true,  unlock:11, infinite:false, give:260 },
-  { name:'手雷',   icon:'grenade', rate:520, auto:false, unlock:13, infinite:false, give:12  },
-  { name:'油桶',   icon:'barrel',  rate:420, auto:false, unlock:15, infinite:false, give:6   },
-  { name:'喷火器', icon:'flamer',  rate:50,  auto:true,  unlock:17, infinite:false, give:300 },
-  { name:'火箭筒', icon:'rocket',  rate:750, auto:false, unlock:20, infinite:false, give:10  },
+  { name:'手枪',   icon:'pistol',  rate:270, auto:false, unlock:1,  infinite:true,  give:0,   aim:560 },
+  { name:'马格南', icon:'magnum',  rate:430, auto:false, unlock:3,  infinite:false, give:60,  aim:640 },
+  { name:'乌兹',   icon:'uzi',     rate:85,  auto:true,  unlock:5,  infinite:false, give:150, aim:600 },
+  { name:'霰弹枪', icon:'shotgun', rate:620, auto:false, unlock:8,  infinite:false, give:40,  aim:420 },
+  { name:'加特林', icon:'gatling', rate:55,  auto:true,  unlock:11, infinite:false, give:260, aim:620 },
+  { name:'手雷',   icon:'grenade', rate:520, auto:false, unlock:13, infinite:false, give:12,  aim:330 },
+  { name:'油桶',   icon:'barrel',  rate:420, auto:false, unlock:15, infinite:false, give:6,   aim:260 },
+  { name:'喷火器', icon:'flamer',  rate:50,  auto:true,  unlock:17, infinite:false, give:300, aim:150 },
+  { name:'火箭筒', icon:'rocket',  rate:750, auto:false, unlock:20, infinite:false, give:10,  aim:700 },
 ];
 const WN = WEAPONS.length;
+
+/* ---------- 自动瞄准 ----------
+   玩家反馈：「瞄准的辐射范围有点窄，僵尸跟随后只能拉长距离后对冲射击」。
+   根因是键盘经典模式里朝向 = 移动方向（见 collectLocalInput），跟在屁股后面的僵尸
+   物理上打不到，只能跑开、转身、再迎着它们冲——一局下来全是这个来回。
+   解法分两档，都只改「朝哪儿打」，不改伤害和射速：
+     · 硬锁定：没有明确瞄准输入时（键盘经典 / 手机按住右半边不拖），
+       朝范围内最近的威胁开火。于是可以边后退边打，对冲循环消失。
+     · 软吸附：自己在瞄时（鼠标 / 拖动右摇杆），只在一个锥角内做修正，
+       瞄准权还在玩家手里，但「差一点点擦过去」不再空枪——这就是那句「辐射范围窄」。 */
+const AIM_KEY = 'zombie-world-aimassist';
+let aimAssist = localStoreGet(AIM_KEY) !== 'off';   // 默认开
+const AIM_CONE_MOUSE = .30;   // 鼠标吸附半角 ≈ 17°
+const AIM_CONE_TOUCH = .45;   // 手指没鼠标准，给宽一点 ≈ 26°
+const AIM_STICKY = 1.22;      // 已锁目标的加权优势，防止围殴时朝向乱跳
+// 软吸附时油桶的加权优势。油桶的价值恰恰在于「旁边站着僵尸」，
+// 要是准星压在油桶上还被旁边那只僵尸吸走，这一枪的大爆炸就白瞄了。
+const AIM_BARREL_PREF = .72;
+// 背后目标的距离加权上限。0.12 = 正后方的要比正前方的近 11% 才抢得过，
+// 只用来在「几个一样近」时给个稳定偏好；贴脸的那只不管在哪个方向都优先——
+// 会咬到你的就是它，为了「面朝前」放过它才是错的。
+const AIM_BACK_BIAS = .12;
 
 /* ---------- 难度档（玩家反馈「第六波打不过」：给出选择，而不是一刀切改死） ---------- */
 const DIFFS = [
@@ -523,7 +547,7 @@ function makePlayer(member, slot){
              color:PLAYER_COLORS[slot % PLAYER_COLORS.length],
              x:WW/2+off[0], y:WH/2+off[1], r:13, hp:100, alive:true, fx:1, fy:0,
              walk: 0, moving: false, lastShot: 0, weapon: 0,
-             target: null,
+             target: null, aimLock: null,
              ammo: WEAPONS.map((w,i) => i ? 0 : Infinity),
              unlocked: WEAPONS.map((w,i) => i === 0), inv: 0, flash: 0,
              ultCharge:1, ultT:0, ultKills:0, swing:0, slashT:0,
@@ -540,6 +564,66 @@ function nearestLivingPlayer(o){
   }
   return best ? { player:best, distance:bestD } : null;
 }
+
+/* 自动瞄准的选靶。cone 传 null = 硬锁定（全向 360°，只对背后轻微降权）；
+   传弧度 = 软吸附（超出这个半角的一律不碰，瞄准权留给玩家）。
+   除了武器射程，还额外要求目标在屏幕内——锁一个自己都看不见的东西很惊悚。
+   barrelMode 决定油桶进不进池：
+     'off'    硬锁定的默认值——油桶不能把枪口从要咬你的僵尸身上抢走
+     'prefer' 软吸附的默认值——你把准星压上去了就是明确意图，优先于附近的敌人
+     'only'   按住 Shift 的油桶模式——只瞄油桶，敌人一概不看 */
+function pickAimTarget(p, ax, ay, range, cone, barrelMode){
+  const aimA = Math.atan2(ay, ax);
+  // 用镜头矩形判可见，不用「以玩家为中心」——贴着地图边缘时镜头会被夹住，玩家并不在正中
+  const M = 16;
+  const vx0 = (cam ? cam.x : p.x - VW/2) + M, vy0 = (cam ? cam.y : p.y - VH/2) + M;
+  const vx1 = vx0 + VW - M*2, vy1 = vy0 + VH - M*2;
+  let best = null, bestScore = Infinity;
+  const scan = (list, weight) => {
+    for (const z of list){
+      if (!z || z.hp <= 0) continue;
+      if (z.fuse !== undefined) continue;        // 已经点着的油桶，再打一枪是浪费
+      const zr = z.r || 0;
+      if (z.x + zr < vx0 || z.x - zr > vx1 || z.y + zr < vy0 || z.y - zr > vy1) continue;
+      const dx = z.x - p.x, dy = z.y - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d > range + zr) continue;
+      const rel = Math.atan2(dy, dx) - aimA;
+      const off = Math.abs(Math.atan2(Math.sin(rel), Math.cos(rel)));   // 归一化到 ±π
+      if (cone !== null && off > cone) continue;
+      // 硬锁定按距离排，偏角只做轻微加权；软吸附反过来，谁更贴准星谁优先
+      let score = cone === null
+        ? d * (1 + AIM_BACK_BIAS * (off / Math.PI))
+        : (off / cone) * 260 + d * .35;
+      score *= weight;
+      if (z === p.aimLock) score /= AIM_STICKY;
+      if (score < bestScore){ bestScore = score; best = z; }
+    }
+  };
+  if (barrelMode !== 'only'){ scan(zombies, 1); scan(devils, 1); scan(bosses, 1); }
+  if (barrelMode === 'only') scan(barrels, 1);
+  else if (barrelMode === 'prefer') scan(barrels, AIM_BARREL_PREF);
+  return best;
+}
+
+/* 把朝向交给自动瞄准处理，返回 [ax, ay]。同时把锁到的目标挂在 p.aimLock 上给渲染用。 */
+function applyAimAssist(p, ax, ay){
+  if (!aimAssist || !p || p.alive === false || p.hp <= 0){ if (p) p.aimLock = null; return [ax, ay]; }
+  let cone = null;                                   // 默认硬锁定
+  if (controlMode === 'mouse' && mouse.has) cone = AIM_CONE_MOUSE;
+  if (tFire.id !== null && Math.hypot(tFire.vx, tFire.vy) > 14) cone = AIM_CONE_TOUCH;
+  // 按住 Shift = 手动瞄油桶。键盘经典模式本来一点瞄准自由度都没有（朝向就是移动方向），
+  // 这一颗键把枪口交回玩家手上：想引爆哪个油桶，按住就甩过去。
+  const wantBarrel = !!keys['shift'];
+  const barrelMode = wantBarrel ? 'only' : (cone === null ? 'off' : 'prefer');
+  const t = pickAimTarget(p, ax, ay, WEAPONS[p.weapon].aim || 560, cone, barrelMode);
+  p.aimLock = t;
+  if (!t) return [ax, ay];
+  const dx = t.x - p.x, dy = t.y - p.y;
+  const d = Math.hypot(dx, dy);
+  return d > .01 ? [dx/d, dy/d] : [ax, ay];
+}
+
 function multiplayerActive(){ return netMode !== 'solo'; }
 
 function reset(roster){
@@ -1152,7 +1236,7 @@ function gameOver(){
 
 function collectLocalInput(dt){
   if (!player || player.alive === false || player.hp <= 0){
-    if (player) player.target = null;
+    if (player){ player.target = null; player.aimLock = null; }
     return {
       seq:++localInputSeq, mx:0, my:0,
       ax:player ? player.fx : 1, ay:player ? player.fy : 0,
@@ -1199,6 +1283,8 @@ function collectLocalInput(dt){
     if (d > 14){ ax = tFire.vx/d; ay = tFire.vy/d; }
     firing = true;
   }
+  // 自动瞄准放在最后：上面各模式先给出「玩家的意图方向」，这里再修正或接管
+  [ax, ay] = applyAimAssist(player, ax, ay);
   return { seq:++localInputSeq, mx, my, ax, ay, fire:firing,
     weapon:localDesiredWeapon ?? player.weapon, ultSeq:localUltSeq };
 }
@@ -2700,6 +2786,21 @@ function render(){
     }
   }
 
+  // 自动瞄准：给锁上的目标套一个直角括号，玩家要能一眼看出枪口跟着谁。
+  // 油桶用橙色，跟锁敌的黄色分开——按住 Shift 甩过去时要立刻看出「瞄的是桶不是人」
+  if (state === 'play' && player && player.aimLock && player.aimLock.hp > 0){
+    const z = player.aimLock, R = (z.r || 12) + 7, c = R * .55;
+    ctx.strokeStyle = barrels.includes(z) ? 'rgba(255,140,46,.95)' : 'rgba(255,210,62,.92)';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1,-1],[1,-1],[-1,1],[1,1]]){
+      ctx.moveTo(z.x + sx*R, z.y + sy*R - sy*c);
+      ctx.lineTo(z.x + sx*R, z.y + sy*R);
+      ctx.lineTo(z.x + sx*R - sx*c, z.y + sy*R);
+    }
+    ctx.stroke();
+  }
+
   // 鼠标模式：目标点标记 + 指针准星
   if (controlMode === 'mouse' && state === 'play'){
     if (player.target){
@@ -2983,6 +3084,21 @@ function toggleMode(){
 }
 modeBtns.forEach(b => b.onclick = toggleMode);
 refreshModeBtns();
+/* ---------- 自动瞄准开关（记在本地） ---------- */
+const aimBtns = [document.getElementById('btnAim'), document.getElementById('btnAim2')];
+function refreshAimBtns(){
+  const label = '自动瞄准：' + (aimAssist ? '开' : '关');
+  for (const b of aimBtns) if (b) b.textContent = label;
+}
+function toggleAim(){
+  aimAssist = !aimAssist;
+  localStoreSet(AIM_KEY, aimAssist ? 'on' : 'off');
+  if (player) player.aimLock = null;
+  refreshAimBtns();
+  sfx('click');
+}
+aimBtns.forEach(b => { if (b) b.onclick = toggleAim; });
+refreshAimBtns();
 /* ---------- 难度选择（记在本地，下次进来还是这一档） ---------- */
 const btnDiff = document.getElementById('btnDiff');
 const savedDiff = DIFFS.findIndex(d => d.key === localStoreGet(DIFF_KEY));

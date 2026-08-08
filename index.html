@@ -55,6 +55,7 @@
   <button class="btn minor" id="btnDiff">难度：标准</button>
   <button class="btn minor" id="btnQuality">画质：自动</button>
   <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
+  <button class="btn minor" id="btnAim">自动瞄准：开</button>
   <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
   <button class="btn minor" id="btnHelp">操作说明</button>
   <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
@@ -113,16 +114,24 @@
 <div id="help" class="screen hidden">
   <div class="help-box">
     <h2>▍手机 / 平板怎么玩</h2>
-    <b>射击</b>：手指按住<b>屏幕右半边</b>就会开火；按住不动打的是当前朝向，<b>拖动</b>则朝拖的方向瞄准。<br>
+    <b>射击</b>：手指按住<b>屏幕右半边</b>就会开火；<b>按住不动</b>会自动瞄最近的敌人，<b>拖动</b>则朝拖的方向瞄准（仍带小幅吸附）。<br>
     <b>移动</b>：手指按住<b>屏幕左半边</b>拖动，就地生成摇杆。<br>
     <b>换武器</b>：点右下角 <b>换枪</b> 键循环切换（自动跳过没子弹的枪）；也可以<b>直接点最下面那排武器格</b>指定一把。<br>
     <b>无双</b>：点右下角红色圆键。<b>暂停</b>：点左上角 ❚❚。<br>
     <b>竖屏也能玩</b>：竖屏会自动换成竖版视野，横过来则是宽视野，不用非得转屏。<br>
     <h2 style="margin-top:14px">▍电脑操作</h2>
-    <b>键盘经典模式</b>：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键移动，朝面对方向射击<br>
+    <b>键盘经典模式</b>：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键移动；
+    开着自动瞄准时会自己转向锁定的敌人，所以<b>可以边往后撤边打身后的僵尸</b><br>
     <b>鼠标射击模式</b>：<b>左键</b>点击/按住朝指针方向<b>攻击</b>；<b>右键</b>点击移动到该点、按住持续跟随；也可用 WASD 移动<br>
     射击：左键 / <kbd>空格</kbd> / <kbd>J</kbd>（可按住连射）<br>
     切换武器：<b>鼠标滚轮</b> / <kbd>Q</kbd> <kbd>E</kbd> / 数字键 <kbd>1</kbd>－<kbd>9</kbd> ｜ 暂停：<kbd>P</kbd> / <kbd>Esc</kbd><br>
+    <b>自动瞄准</b>（主菜单与暂停页可开关，默认开）：<b>没在自己瞄的时候</b>——键盘经典模式、
+    或手机按住右半边不拖——枪口自动跟住范围内<b>最近的敌人</b>，被锁的那只身上会有黄色括号。
+    <b>自己在瞄的时候</b>——鼠标、或拖动右摇杆——只在准星附近做小角度吸附，方向仍然听你的。
+    锁定半径跟着枪走：喷火器只锁贴脸的，火箭筒能锁到屏幕边；超出屏幕的一律不锁<br>
+    <b>瞄油桶</b>：按住 <kbd>Shift</kbd> 枪口就<b>甩到最近的油桶</b>上（括号变橙色），松开回到锁敌；
+    范围内没有油桶时等于临时把瞄准交还给你。鼠标 / 拖摇杆时不用按——准星压在油桶上
+    就<b>优先于旁边的僵尸</b>，不会被吸走<br>
     <b>无双大招</b>：按 <kbd>R</kbd> 或点击右下角图标发动，化身近战大师，双刀乱舞并<b>吸血</b>，持续 15 秒；
     开局自带一次，之后每击杀 <b>50</b> 个敌人重新充能<br>
     主菜单可选 <b>5 种战场地图</b>（带实时预览）与 <b>3 档难度</b>（轻松 / 标准 / 硬核）<br>
@@ -137,7 +146,7 @@
     连续击杀提升<b>连击倍数</b>，
     倍数达到 <b>×3 / ×5 / ×8 / ×11 / ×13 / ×15 / ×17 / ×20</b> 依次解锁：
     马格南、乌兹冲锋枪、霰弹枪、加特林、手雷、油桶、喷火器、火箭筒。
-    受到伤害连击减半。敌人偶尔掉落<b>医疗箱</b>与<b>弹药箱</b>。地上的油桶射击即可引爆，还会连环殉爆！
+    受到伤害连击减半。敌人偶尔掉落<b>医疗箱</b>与<b>弹药箱</b>。地上的油桶射击即可引爆（按住 <kbd>Shift</kbd> 直接瞄），还会连环殉爆！
   </div>
   <button class="btn minor" id="btnBack">返 回</button>
 </div>
@@ -146,6 +155,7 @@
   <h1 class="logo" style="font-size:min(9vw,48px)">暂 停</h1>
   <button class="btn" id="btnResume">继续游戏</button>
   <button class="btn minor" id="btnMode2">操作模式：键盘经典</button>
+  <button class="btn minor" id="btnAim2">自动瞄准：开</button>
   <button class="btn minor" id="btnQuit">返回主菜单</button>
 </div>
 
