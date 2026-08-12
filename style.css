@@ -188,26 +188,32 @@
     box-shadow:0 8px 0 #000, 0 18px 50px rgba(0,0,0,.45); }
   .online-field { display:grid; grid-template-columns:112px 1fr; gap:12px; align-items:center;
     margin:10px 0; text-align:left; color:#a9a394; font-size:13px; letter-spacing:.08em; }
-  .online-field input, .join-row input { min-width:0; height:42px; padding:0 12px;
+  .online-field input { min-width:0; height:42px; padding:0 12px;
     border:2px solid #4a5159; border-radius:2px; outline:none;
     background:#0c0f12; color:#f2efe4; font:700 15px inherit; letter-spacing:.06em; }
-  .online-field input:focus, .join-row input:focus { border-color:#79b6c9;
+  .online-field input:focus, .signal-block textarea:focus { border-color:#79b6c9;
     box-shadow:0 0 0 2px rgba(121,182,201,.14); }
+  .online-howto { margin-bottom:14px; padding:10px 12px; border-left:3px solid #4c9db5;
+    background:rgba(76,157,181,.08); text-align:left; color:#9fb3bb; font-size:12px; line-height:1.7; }
   .online-consent { display:flex; gap:9px; align-items:flex-start; margin:12px 0 4px;
     text-align:left; color:#858d91; font-size:11px; line-height:1.55; }
   .online-consent input { width:16px; height:16px; margin-top:1px; flex:0 0 auto; accent-color:#4c9db5; }
   .online-actions { display:flex; align-items:stretch; gap:12px; margin-top:18px; }
   .online-actions > .btn { flex:1; margin:0; padding:11px 16px; font-size:16px; }
-  .join-row { display:flex; flex:1; gap:8px; }
-  .join-row input { width:100%; text-align:center; text-transform:uppercase; font-size:18px; }
-  .join-row .btn { margin:0; padding:10px 18px; white-space:nowrap; }
   .online-status { min-height:22px; margin-top:14px; color:#9c947f; font-size:13px; line-height:1.55; }
   .online-status[data-kind="error"] { color:#ff786d; }
   .online-status[data-kind="ok"] { color:#76d7a1; }
-  .room-code-line { margin:16px 0 12px; color:#aaa394; font-size:14px; letter-spacing:.08em; }
-  .room-code-line strong { margin-left:8px; color:#ffca55; font-size:25px; letter-spacing:.2em; }
-  .tiny-btn { margin-left:8px; padding:5px 9px; border:1px solid #575f68; border-radius:3px;
-    background:#20262b; color:#d8d2c2; cursor:pointer; }
+  /* 邀请码/应答码的互发区：码是一大坨 base64，给等宽字体和可滚动的框，别撑破面板 */
+  #signalPanel { margin-top:16px; }
+  .signal-step { margin-bottom:12px; padding:8px 10px; border:1px dashed #4a5159;
+    text-align:left; color:#ffca55; font-size:13px; line-height:1.6; }
+  .signal-block { margin-bottom:14px; text-align:left; }
+  .signal-label { display:block; margin-bottom:6px; color:#a9a394; font-size:12px; letter-spacing:.08em; }
+  .signal-block textarea { display:block; width:100%; padding:9px 10px; resize:vertical;
+    border:2px solid #4a5159; border-radius:2px; outline:none; background:#0c0f12; color:#d8d2c2;
+    font:12px/1.45 ui-monospace,Menlo,Consolas,monospace; word-break:break-all; }
+  .signal-block .btn { width:100%; margin:8px 0 0; padding:10px 16px; }
+  #btnSignalCancel { width:100%; margin:0; }
   .room-meta { margin-bottom:10px; color:#7f9eaa; font-size:12px; }
   .room-players { display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:left; }
   .room-player { display:flex; align-items:center; gap:8px; min-height:42px; padding:8px 10px;

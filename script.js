@@ -524,12 +524,11 @@ let wave, spawnQueue, devilQueue, spawnTimer, waveRest, score, kills,
 let gameOverTimer = null;
 
 /* ---------- 多人战局：房主权威，客端只发输入/收快照 ---------- */
-// ⚠️ 联机入口默认关闭。Toy 只托管静态包、不跑 Node，联机必须另有一台公网 WSS 服务器；
-// 没有服务器时那个按钮点进去 100% 是「联机服务器连接中断」，是个必坏的入口。
-// 代码全部保留（multiplayer.js / server/ / test/ 都在）：架好服务器后把这里改成 true，
-// 并在 multiplayer.js 里把默认服务器地址换成你自己的 wss:// 域名，入口就回来了。
-// 排行榜那类「不用自建服务器的多人感」走 Toy JS SDK，见 README。
-const ONLINE_ENABLED = false;
+// 联机 = 热点直连（p2p.js）：两台手机连同一个热点，走 WebRTC DataChannel 点对点，不需要服务器。
+// 之前这里关着，是因为当时的联机要一台公网 WSS 服务器，而 Toy 只托管静态包、不跑 Node，
+// 那个按钮点进去必然是「连接中断」。换成 P2P 之后不再依赖任何服务器，入口才重新打开。
+// WSS 那套整个保留在 multiplayer.js / server/ / test/，哪天真有服务器了还能用。
+const ONLINE_ENABLED = true;
 const net = window.zombieNetwork;
 const PLAYER_COLORS = ['#3f4652','#79d7ff','#ffcb55','#79e39f'];
 let players = new Map();
@@ -3178,15 +3177,20 @@ document.getElementById('btnMapBack').onclick = () => { setScreen(mapReturnScree
 
 /* ---------- 多人联机大厅 ---------- */
 const onlineName = document.getElementById('onlineName');
-const onlineServer = document.getElementById('onlineServer');
 const onlineConsent = document.getElementById('onlineConsent');
-const roomCodeInput = document.getElementById('roomCodeInput');
 const btnCreateRoom = document.getElementById('btnCreateRoom');
-const btnJoinRoom = document.getElementById('btnJoinRoom');
+const btnJoinP2P = document.getElementById('btnJoinP2P');
 const onlineJoin = document.getElementById('onlineJoin');
+const signalPanel = document.getElementById('signalPanel');
+const signalStepText = document.getElementById('signalStep');
+const signalOutWrap = document.getElementById('signalOutWrap');
+const signalOutLabel = document.getElementById('signalOutLabel');
+const signalOut = document.getElementById('signalOut');
+const signalInWrap = document.getElementById('signalInWrap');
+const signalInLabel = document.getElementById('signalInLabel');
+const signalIn = document.getElementById('signalIn');
 const roomPanel = document.getElementById('roomPanel');
 const roomPlayers = document.getElementById('roomPlayers');
-const roomCodeLabel = document.getElementById('roomCode');
 const roomMeta = document.getElementById('roomMeta');
 const onlineStatus = document.getElementById('onlineStatus');
 const btnReady = document.getElementById('btnReady');
@@ -3202,11 +3206,6 @@ let roomRequestBusy = false;
 
 onlineName.value = localStoreGet('zombie-world-player-name') ||
   ('幸存者' + Math.floor(10 + Math.random()*90));
-onlineServer.value = net.url;
-roomCodeInput.addEventListener('input', () => {
-  roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
-});
-
 function setOnlineStatus(text, kind){
   onlineStatus.textContent = text;
   onlineStatus.dataset.kind = kind || '';
@@ -3214,7 +3213,48 @@ function setOnlineStatus(text, kind){
 function setRoomRequestBusy(busy){
   roomRequestBusy = !!busy;
   btnCreateRoom.disabled = roomRequestBusy;
-  btnJoinRoom.disabled = roomRequestBusy;
+  btnJoinP2P.disabled = roomRequestBusy;
+}
+
+/* ---------- 信令：两台手机之间人肉互发一次「码」 ----------
+   热点直连没有服务器，也就没有信令通道，offer/answer 只能靠玩家自己发给对方
+   （微信、面对面念都行）。三个阶段：
+     host      房主出邀请码，同时等着粘对方的应答码
+     guest-in  客机先粘房主的邀请码
+     guest-out 客机产出应答码，发回去等房主粘贴
+   连上以后（房里有 2 个人）这一整块就收起来，换成正常的房间面板。 */
+let signalStage = '';
+function setSignalStage(stage){
+  signalStage = stage;
+  signalPanel.classList.toggle('hidden', !stage);
+  onlineJoin.classList.toggle('hidden', !!stage || !!net.room);
+  signalOutWrap.classList.toggle('hidden', stage !== 'host' && stage !== 'guest-out');
+  signalInWrap.classList.toggle('hidden', stage !== 'host' && stage !== 'guest-in');
+  if (stage === 'host'){
+    signalStepText.textContent = '① 把下面这串「邀请码」发给对方 → ② 对方会回你一串「应答码」，粘到下面确定';
+    signalOutLabel.textContent = '① 我的邀请码 —— 发给对方';
+    signalInLabel.textContent = '② 粘贴对方发回的应答码';
+  } else if (stage === 'guest-in'){
+    signalStepText.textContent = '① 把房主发来的「邀请码」粘到下面，点确定后会生成你的应答码';
+    signalInLabel.textContent = '① 粘贴房主发来的邀请码';
+  } else if (stage === 'guest-out'){
+    signalStepText.textContent = '② 把下面这串「应答码」发回给房主，他粘上就连上了';
+    signalOutLabel.textContent = '② 我的应答码 —— 发回给房主';
+  }
+  if (!stage){ signalOut.value = ''; signalIn.value = ''; }
+}
+
+// WebView 里 clipboard API 经常被拦，留一条 execCommand 的兜底路
+async function copyToClipboard(text){
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (_) {}
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) {}
+  document.body.removeChild(ta);
+  return ok;
 }
 const ONLINE_ERROR_TEXT = {
   INVALID_NAME:'昵称需为 1–12 个字符。',
@@ -3243,11 +3283,12 @@ function onlineConsentGranted(){
 }
 function renderRoom(){
   const room = net.room;
-  onlineJoin.classList.toggle('hidden', !!room);
+  // 人齐了就把信令那一块收起来，码已经没用了
+  if (room && room.players.length >= 2 && signalStage) setSignalStage('');
+  onlineJoin.classList.toggle('hidden', !!room || !!signalStage);
   roomPanel.classList.toggle('hidden', !room);
   if (!room) return;
-  const capacity = room.capacity || 4;
-  roomCodeLabel.textContent = room.code;
+  const capacity = room.capacity || 2;
   roomMeta.textContent = (net.isHost ? '你是房主 · ' : '') +
     '地图：' + MAPS[room.mapIndex || 0].name + ' · ' +
     room.players.length + '/' + capacity + ' 人';
@@ -3284,7 +3325,7 @@ function refreshNetHud(statusText){
   if (!net.room) return;
   netRole.textContent = statusText || (netMode === 'host' ? '房主' : '队员');
   netRoom.textContent = net.room.code;
-  netCount.textContent = net.room.players.length + '/' + (net.room.capacity || 4);
+  netCount.textContent = net.room.players.length + '/' + (net.room.capacity || 2);
   netPing.textContent = net.latency === null ? '-- ms' : net.latency + ' ms';
 }
 
@@ -3317,6 +3358,7 @@ function leaveMultiplayer(showOnline, reason){
   if (net.room) net.leaveRoom();
   else net.disconnect(true);
   setRoomRequestBusy(false);
+  setSignalStage('');
   netMode = 'solo';
   reset();
   if (showOnline){
@@ -3332,7 +3374,6 @@ const btnOnline = document.getElementById('btnOnline');
 if (ONLINE_ENABLED) btnOnline.classList.remove('hidden');
 btnOnline.onclick = () => {
   if (!ONLINE_ENABLED) return;
-  onlineServer.value = net.url;
   setScreen('online');
   renderRoom();
   sfx('click');
@@ -3342,33 +3383,64 @@ btnCreateRoom.onclick = async () => {
   if (!onlineConsentGranted()) return;
   audioInit();
   setRoomRequestBusy(true);
-  setOnlineStatus('正在连接服务器…');
+  setSignalStage('host');
+  signalOut.value = '';
+  setOnlineStatus('正在生成邀请码…');
   try {
-    net.setServerUrl(onlineServer.value);
-    onlineServer.value = net.url;
-    await net.createRoom(currentName(), 4);
+    await net.createRoom(currentName(), 2);
   } catch (error){
+    setSignalStage('');
+    setOnlineStatus(error.message || '开房失败', 'error');
+  } finally {
     setRoomRequestBusy(false);
-    setOnlineStatus(error.message || '连接失败', 'error');
   }
 };
-btnJoinRoom.onclick = async () => {
+btnJoinP2P.onclick = () => {
   if (roomRequestBusy) return;
   if (!onlineConsentGranted()) return;
-  const code = roomCodeInput.value.trim();
-  if (code.length < 4){ setOnlineStatus('请输入有效房间码。', 'error'); return; }
   audioInit();
+  setSignalStage('guest-in');
+  setOnlineStatus('把房主发来的邀请码粘进来。');
+};
+document.getElementById('btnApplySignal').onclick = async () => {
+  const text = signalIn.value.trim();
+  if (!text){ setOnlineStatus('先把对方的码粘进来。', 'error'); return; }
+  if (roomRequestBusy) return;
   setRoomRequestBusy(true);
-  setOnlineStatus('正在加入房间…');
   try {
-    net.setServerUrl(onlineServer.value);
-    onlineServer.value = net.url;
-    await net.joinRoom(code, currentName());
+    if (signalStage === 'host'){
+      setOnlineStatus('正在连接对方…');
+      await net.acceptRemoteCode(text);
+      signalIn.value = '';
+    } else {
+      setOnlineStatus('正在生成应答码…');
+      await net.joinWithCode(text, currentName());
+      setSignalStage('guest-out');
+    }
   } catch (error){
+    setOnlineStatus(error.message || '这串码用不了', 'error');
+  } finally {
     setRoomRequestBusy(false);
-    setOnlineStatus(error.message || '连接失败', 'error');
   }
 };
+document.getElementById('btnCopySignal').onclick = async () => {
+  if (!signalOut.value){ setOnlineStatus('码还没生成好，稍等一下。', 'error'); return; }
+  const ok = await copyToClipboard(signalOut.value);
+  setOnlineStatus(ok ? '已复制，发给对方。' : '复制被拦了，请长按上面的框手动全选复制。', ok ? 'ok' : 'error');
+};
+document.getElementById('btnSignalCancel').onclick = () => {
+  setSignalStage('');
+  net.disconnect(true);
+  setOnlineStatus('已取消。');
+  renderRoom();
+};
+// 码生成好了才由 p2p.js 抛出来——候选收集要等一会儿，不是点完按钮立刻就有
+net.addEventListener('signal', event => {
+  signalOut.value = event.detail.code;
+  setOnlineStatus(event.detail.kind === 'offer'
+    ? '邀请码好了，复制发给对方，然后等他回你应答码。'
+    : '应答码好了，复制发回给房主。', 'ok');
+});
 btnReady.onclick = () => {
   audioInit();
   const self = net.room && net.room.players.find(p => p.id === net.selfId);
@@ -3376,15 +3448,6 @@ btnReady.onclick = () => {
 };
 btnRoomStart.onclick = () => { audioInit(); net.startMatch(); };
 btnRoomMap.onclick = () => { mapReturnScreen = 'online'; setScreen('mapsel'); sfx('click'); };
-document.getElementById('btnCopyCode').onclick = async () => {
-  if (!net.room) return;
-  try {
-    await navigator.clipboard.writeText(net.room.code);
-    setOnlineStatus('房间码已复制。', 'ok');
-  } catch (_) {
-    setOnlineStatus('房间码：' + net.room.code, 'ok');
-  }
-};
 document.getElementById('btnLeaveRoom').onclick = () => leaveMultiplayer(true);
 document.getElementById('btnOnlineBack').onclick = () => {
   if (net.room) net.leaveRoom();
@@ -3397,7 +3460,7 @@ document.getElementById('netLeaveBtn').onclick = () => leaveMultiplayer(false);
 net.addEventListener('room.state', event => {
   setRoomRequestBusy(false);
   const message = event.detail;
-  if (net.room) net.room.capacity = Number(message.capacity)||4;
+  if (net.room) net.room.capacity = Number(message.capacity)||2;
   renderRoom(); refreshNetHud();
   if (net.room && net.room.phase === 'lobby') restoringSavedSession = false;
   if (net.room && net.room.phase === 'playing' && netMode === 'solo' && restoringSavedSession){
@@ -3486,7 +3549,8 @@ document.addEventListener('visibilitychange', () => {
   lastSnapshotSent = performance.now();
   net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
 });
-// 联机入口关闭时也不能自动恢复上一局：否则老玩家一进来就被丢进一个进不去的大厅
+// 会话恢复只对 WSS 后端有意义。热点直连的 hasSavedSession() 恒为 false：一条 P2P 管道
+// 随页面而生随页面而灭，刷新就等于断线，没有能被「恢复」的东西——与其假装能恢复，不如直说。
 if (ONLINE_ENABLED && net.hasSavedSession()){
   restoringSavedSession = true;
   onlineConsent.checked = true;

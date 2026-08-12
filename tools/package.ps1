@@ -4,13 +4,14 @@
 #     style.css
 #     script.js
 #     multiplayer.js
+#     p2p.js
 #     images/  (logo.png, banner.jpg)
 # Usage:  powershell -ExecutionPolicy Bypass -File tools\package.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-$files  = @('index.html', 'style.css', 'script.js', 'multiplayer.js')
+$files  = @('index.html', 'style.css', 'script.js', 'multiplayer.js', 'p2p.js')
 # images/ 只挑要进包的：poster.png 是上传平台时用 --poster 单独传的封面，
 # 游戏本身不引用它，卷进包里白白多 150 KB。
 $images = @('logo.png', 'banner.jpg')

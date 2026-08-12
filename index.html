@@ -46,9 +46,7 @@
   </div>
   <div style="height:20px"></div>
   <button class="btn" id="btnStart">▶ 单人游戏</button>
-  <!-- 联机入口默认藏起来（HTML 里就藏，避免加载瞬间闪一下）；
-       script.js 的 ONLINE_ENABLED 打开后才显示，见那里的说明 -->
-  <button class="btn online hidden" id="btnOnline">◉ 2–4 人联机</button>
+  <button class="btn online" id="btnOnline">◉ 2 人热点联机</button>
   <!-- 排行榜依赖 Toy JS SDK，拿不到 SDK 的环境（本地开发、站外托管）保持隐藏，
        不留一个点了没反应的按钮 -->
   <button class="btn minor hidden" id="btnRank">🏆 排行榜</button>
@@ -62,32 +60,40 @@
 </div>
 
 <div id="online" class="screen hidden">
-  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">多人<span>联机</span></h1>
-  <div class="sub">2–4 人 · 合作守住同一片战场</div>
+  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">热点<span>联机</span></h1>
+  <div class="sub">2 人 · 连同一个热点 · 不需要服务器</div>
   <div class="online-panel">
+    <div class="online-howto">
+      一个人开热点，另一个连上去，然后互发一次「码」就能开局。<br>
+      开热点那位要开着自己的流量，不然游戏页面都打不开。
+    </div>
     <label class="online-field">
       <span>玩家昵称</span>
       <input id="onlineName" maxlength="12" autocomplete="nickname" placeholder="幸存者">
     </label>
-    <label class="online-field">
-      <span>联机服务器</span>
-      <input id="onlineServer" inputmode="url" autocomplete="url" placeholder="ws://localhost:8080/ws">
-    </label>
     <label class="online-consent">
       <input id="onlineConsent" type="checkbox">
-      <span>我同意为联机临时传输昵称、操作输入与战局状态；服务器不要求登录、不保存聊天或长期战绩。</span>
+      <span>我同意为联机在两台设备之间直接传输昵称、操作输入与战局状态；不经过任何服务器，也不保存聊天或长期战绩。</span>
     </label>
     <div id="onlineJoin" class="online-actions">
-      <button class="btn" id="btnCreateRoom">创建房间</button>
-      <div class="join-row">
-        <input id="roomCodeInput" maxlength="6" autocomplete="off" placeholder="房间码">
-        <button class="btn minor" id="btnJoinRoom">加入</button>
+      <button class="btn" id="btnCreateRoom">我开房 · 出邀请码</button>
+      <button class="btn minor" id="btnJoinP2P">我加入 · 粘对方的码</button>
+    </div>
+    <div id="signalPanel" class="hidden">
+      <div id="signalStep" class="signal-step"></div>
+      <div id="signalOutWrap" class="signal-block hidden">
+        <span class="signal-label" id="signalOutLabel">我的码 —— 发给对方</span>
+        <textarea id="signalOut" readonly rows="3" placeholder="正在生成…"></textarea>
+        <button class="btn minor" id="btnCopySignal">复制我的码</button>
       </div>
+      <div id="signalInWrap" class="signal-block hidden">
+        <span class="signal-label" id="signalInLabel">粘贴对方的码</span>
+        <textarea id="signalIn" rows="3" placeholder="把对方发来的一长串粘在这里"></textarea>
+        <button class="btn minor" id="btnApplySignal">确定</button>
+      </div>
+      <button class="btn minor" id="btnSignalCancel">取消</button>
     </div>
     <div id="roomPanel" class="hidden">
-      <div class="room-code-line">房间码 <strong id="roomCode">——</strong>
-        <button id="btnCopyCode" class="tiny-btn">复制</button>
-      </div>
       <div id="roomMeta" class="room-meta"></div>
       <div id="roomPlayers" class="room-players"></div>
       <div class="room-actions">
@@ -96,7 +102,7 @@
         <button class="btn" id="btnRoomStart">开始战斗</button>
       </div>
     </div>
-    <div id="onlineStatus" class="online-status" role="status">输入昵称后创建或加入房间</div>
+    <div id="onlineStatus" class="online-status" role="status">输入昵称，然后一个人开房、一个人加入</div>
   </div>
   <div class="online-footer">
     <button class="btn minor" id="btnLeaveRoom">离开房间</button>
@@ -200,6 +206,9 @@
      CDN 挂了也只是 window.toy 缺失，游戏本体不受影响。 -->
 <script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 <script src="multiplayer.js"></script>
+<!-- p2p.js 必须在 multiplayer.js 之后：它会把 window.zombieNetwork 换成热点直连的实现，
+     WSS 版本原样留在 window.zombieWsNetwork，等哪天真有公网服务器了再换回去 -->
+<script src="p2p.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
