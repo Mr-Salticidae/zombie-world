@@ -484,6 +484,13 @@ const AIM_BARREL_PREF = .72;
 // 只用来在「几个一样近」时给个稳定偏好；贴脸的那只不管在哪个方向都优先——
 // 会咬到你的就是它，为了「面朝前」放过它才是错的。
 const AIM_BACK_BIAS = .12;
+// 换靶之后的冷静期，以及冷静期里加倍的粘性。
+// 「方向一换就乱打」有一半是连环换靶：A 被 B 顶掉、B 又被 C 顶掉，一秒里枪口甩三回。
+const AIM_HOLD = .35;
+const AIM_STICKY_HOLD = 2.2;
+// 枪口转向的角速度上限（弧度/秒）。换靶不再是瞬移：中途打出去的子弹是「扫过去」的一串，
+// 而不是这一发朝左下一发朝右——后者看起来就是纯粹的乱打。
+const AIM_TURN = 13;
 
 /* ---------- 难度档（玩家反馈「第六波打不过」：给出选择，而不是一刀切改死） ---------- */
 const DIFFS = [
@@ -546,7 +553,7 @@ function makePlayer(member, slot){
              color:PLAYER_COLORS[slot % PLAYER_COLORS.length],
              x:WW/2+off[0], y:WH/2+off[1], r:13, hp:100, alive:true, fx:1, fy:0,
              walk: 0, moving: false, lastShot: 0, weapon: 0,
-             target: null, aimLock: null,
+             target: null, aimLock: null, aimHold: 0,
              ammo: WEAPONS.map((w,i) => i ? 0 : Infinity),
              unlocked: WEAPONS.map((w,i) => i === 0), inv: 0, flash: 0,
              ultCharge:1, ultT:0, ultKills:0, swing:0, slashT:0,
@@ -571,13 +578,14 @@ function nearestLivingPlayer(o){
      'off'    硬锁定的默认值——油桶不能把枪口从要咬你的僵尸身上抢走
      'prefer' 软吸附的默认值——你把准星压上去了就是明确意图，优先于附近的敌人
      'only'   按住 Shift 的油桶模式——只瞄油桶，敌人一概不看 */
-function pickAimTarget(p, ax, ay, range, cone, barrelMode){
+function pickAimTarget(p, ax, ay, range, cone, barrelMode, sticky){
   const aimA = Math.atan2(ay, ax);
   // 用镜头矩形判可见，不用「以玩家为中心」——贴着地图边缘时镜头会被夹住，玩家并不在正中
   const M = 16;
   const vx0 = (cam ? cam.x : p.x - VW/2) + M, vy0 = (cam ? cam.y : p.y - VH/2) + M;
   const vx1 = vx0 + VW - M*2, vy1 = vy0 + VH - M*2;
-  let best = null, bestScore = Infinity;
+  const stick = sticky || AIM_STICKY;
+  const pool = [];
   const scan = (list, weight) => {
     for (const z of list){
       if (!z || z.hp <= 0) continue;
@@ -595,19 +603,34 @@ function pickAimTarget(p, ax, ay, range, cone, barrelMode){
         ? d * (1 + AIM_BACK_BIAS * (off / Math.PI))
         : (off / cone) * 260 + d * .35;
       score *= weight;
-      if (z === p.aimLock) score /= AIM_STICKY;
-      if (score < bestScore){ bestScore = score; best = z; }
+      if (z === p.aimLock) score /= stick;
+      pool.push({ z, score });
     }
   };
   if (barrelMode !== 'only'){ scan(zombies, 1); scan(devils, 1); scan(bosses, 1); }
   if (barrelMode === 'only') scan(barrels, 1);
   else if (barrelMode === 'prefer') scan(barrels, AIM_BARREL_PREF);
-  return best;
+  if (!pool.length) return null;
+  pool.sort((a, b) => a.score - b.score);
+  // 石柱后面的不锁。子弹碰到柱子就没了，枪口却一直黏着一个根本打不到的目标——
+  // 一边被咬一边对着石头开枪，这是「乱打」里最气人的一种。
+  // 而且僵尸最爱堵在柱子后头，两个 bug 正好互相喂。
+  // 用 blockingPillar（对圆是解析解，每个目标只 O(柱子数)）而不是 losBlocked 的采样射线：
+  // 便宜到可以把整个候选池都验一遍，就不会出现「前几名全被挡、后面明明有能打的」。
+  // 半径传 0：子弹本来就是按点算的（见 bullets 那里的 hitPillar(b.x, b.y, 0)）。
+  for (let i = 0; i < pool.length; i++){
+    if (!blockingPillar(p.x, p.y, pool[i].z.x, pool[i].z.y, 0)) return pool[i].z;
+  }
+  return null;      // 一个都打不到：朝向还给玩家，别对着石头开枪
 }
 
 /* 把朝向交给自动瞄准处理，返回 [ax, ay]。同时把锁到的目标挂在 p.aimLock 上给渲染用。 */
-function applyAimAssist(p, ax, ay){
-  if (!aimAssist || !p || p.alive === false || p.hp <= 0){ if (p) p.aimLock = null; return [ax, ay]; }
+function applyAimAssist(p, ax, ay, dt){
+  if (!aimAssist || !p || p.alive === false || p.hp <= 0){
+    if (p){ p.aimLock = null; p.aimHold = 0; }
+    return [ax, ay];
+  }
+  const step = AIM_TURN * (dt || 0);
   let cone = null;                                   // 默认硬锁定
   if (controlMode === 'mouse' && mouse.has) cone = AIM_CONE_MOUSE;
   if (tFire.id !== null && Math.hypot(tFire.vx, tFire.vy) > 14) cone = AIM_CONE_TOUCH;
@@ -615,12 +638,28 @@ function applyAimAssist(p, ax, ay){
   // 这一颗键把枪口交回玩家手上：想引爆哪个油桶，按住就甩过去。
   const wantBarrel = !!keys['shift'];
   const barrelMode = wantBarrel ? 'only' : (cone === null ? 'off' : 'prefer');
-  const t = pickAimTarget(p, ax, ay, WEAPONS[p.weapon].aim || 560, cone, barrelMode);
+  // 硬锁定的打分基准改用「当前枪口朝向」，不再用「这一帧的移动方向」。
+  // 原来用移动方向：一按反方向键，所有目标的偏角权重整个翻面，锁着的那只被顶掉，
+  // 枪口跳到另一只身上——玩家看到的就是那句「方向一换就乱打了」。
+  // 用枪口朝向做基准，等于让「我正打着谁」自己占一票，走位怎么变都不再洗牌。
+  // 软吸附不动：那时候 ax/ay 是玩家真的在瞄的方向，本来就该听他的。
+  const rx = cone === null ? p.fx : ax, ry = cone === null ? p.fy : ay;
+  p.aimHold = Math.max(0, (p.aimHold || 0) - (dt || 0));
+  const t = pickAimTarget(p, rx, ry, WEAPONS[p.weapon].aim || 560, cone, barrelMode,
+                          p.aimHold > 0 ? AIM_STICKY_HOLD : AIM_STICKY);
+  if (t !== p.aimLock) p.aimHold = AIM_HOLD;         // 刚换过靶就进冷静期，别连着跳
   p.aimLock = t;
   if (!t) return [ax, ay];
   const dx = t.x - p.x, dy = t.y - p.y;
   const d = Math.hypot(dx, dy);
-  return d > .01 ? [dx/d, dy/d] : [ax, ay];
+  if (d <= .01) return [ax, ay];
+  const want = Math.atan2(dy, dx);
+  if (step <= 0) return [dx/d, dy/d];
+  const cur = Math.atan2(p.fy, p.fx);
+  let diff = Math.atan2(Math.sin(want - cur), Math.cos(want - cur));
+  if (Math.abs(diff) > step) diff = (diff < 0 ? -step : step);
+  const a = cur + diff;
+  return [Math.cos(a), Math.sin(a)];
 }
 
 function multiplayerActive(){ return netMode !== 'solo'; }
@@ -718,10 +757,11 @@ addEventListener('wheel', e => {
   e.preventDefault();
   cycleWeapon(e.deltaY > 0 ? 1 : -1);
 }, { passive:false });
-function weaponReady(i){
-  return i >= 0 && i < WN && player.unlocked[i] &&
-         (WEAPONS[i].infinite || player.ammo[i] > 0);
+function weaponUsable(p, i){
+  return !!p && i >= 0 && i < WN && p.unlocked[i] &&
+         (WEAPONS[i].infinite || p.ammo[i] > 0);
 }
+function weaponReady(i){ return weaponUsable(player, i); }
 // 指定某把枪（数字键 / 点武器栏）：拿不到就说清楚为什么，别默默没反应
 function selectWeapon(i){
   if (i < 0 || i >= WN || !player) return false;
@@ -765,7 +805,12 @@ const swapBtn = document.getElementById('swapBtn'), swapName = document.getEleme
 const ultBtn = document.getElementById('ultBtn');
 const pauseBtn = document.getElementById('pauseBtn');
 const touchGuide = document.getElementById('touchGuide');
-let tMove = { id:null, ox:0, oy:0, vx:0, vy:0 }, tFire = { id:null, ox:0, oy:0, vx:0, vy:0 };
+// slot / t0 是给「点一下武器栏换枪」用的：左半边的手指先当摇杆，抬手时才结算是不是一次轻点
+let tMove = { id:null, ox:0, oy:0, vx:0, vy:0, slot:-1, t0:0 };
+let tFire = { id:null, ox:0, oy:0, vx:0, vy:0, slot:-1, t0:0 };
+// 触屏诊断：iOS / WebView 上的触摸问题在本机复现不出来，只能让人在真机上打开这一层看
+let touchDebug = false;
+const touchDiag = { start:0, move:0, end:0, cancel:0, claimed:0, pd:0, live:0 };
 
 // 触屏按钮按画布实际位置摆放：既压不到底部武器栏，也不会掉进刘海/圆角里
 function layoutTouchUI(){
@@ -794,11 +839,34 @@ function placeNub(nub, vx, vy){
   nub.style.left = (34 + Math.cos(a)*34*m) + 'px';
   nub.style.top  = (34 + Math.sin(a)*34*m) + 'px';
 }
-function resetSticks(){
-  tMove = { id:null, ox:0, oy:0, vx:0, vy:0 };
-  tFire = { id:null, ox:0, oy:0, vx:0, vy:0 };
-  stickL.style.display = 'none'; stickR.style.display = 'none';
-  ghostL.classList.remove('fade'); ghostR.classList.remove('fade');
+function releaseMove(){
+  tMove = { id:null, ox:0, oy:0, vx:0, vy:0, slot:-1, t0:0 };
+  stickL.style.display = 'none'; ghostL.classList.remove('fade');
+}
+function releaseFire(){
+  tFire = { id:null, ox:0, oy:0, vx:0, vy:0, slot:-1, t0:0 };
+  stickR.style.display = 'none'; ghostR.classList.remove('fade');
+}
+function resetSticks(){ releaseMove(); releaseFire(); }
+/* 触点对账 —— 「iOS 端无法移动」的正解。
+   每收到一个触摸事件，就拿 e.touches（此刻还按在屏幕上的全部手指）核一遍自己追踪的那两根
+   还在不在，不在就当场放掉。为什么不能只靠 touchend / touchcancel：
+   WKWebView（B 站 App 内嵌的就是它）里，宿主的滚动手势可以把一整串触摸整个收走，
+   结束事件一个都不发。那样 tMove.id 就永远停在某个已经不存在的手指上，
+   而后所有左半边的按下都被 `tMove.id === null` 这道门挡在外面——
+   右半边照常开火（走的是另一个槽），左半边彻底没反应，症状正是「能打不能走」。
+   对账让它在下一次触摸时自己恢复，不用重开页面。 */
+function syncTouches(e){
+  const live = e.touches;
+  touchDiag.live = live.length;
+  let hasMove = tMove.id === null, hasFire = tFire.id === null;
+  for (let i = 0; i < live.length; i++){
+    const id = live[i].identifier;
+    if (id === tMove.id) hasMove = true;
+    if (id === tFire.id) hasFire = true;
+  }
+  if (!hasMove) releaseMove();
+  if (!hasFire) releaseFire();
 }
 // 落在按钮/浮层上的手指不算摇杆——否则点「换枪」会顺手朝右上角打一梭子
 function onUiElement(t){
@@ -821,52 +889,82 @@ function weaponSlotAt(px, py){
   const i = Math.floor((px - bar.x0) / bar.slotW);
   return (i >= 0 && i < WN) ? i : -1;
 }
+/* 三条铁律，全是为手机 / WebView 写的：
+   1. 用下标遍历 TouchList，不用 for...of —— 迭代器在部分 WebKit 上没有，
+      真抛起来是整个触屏输入一起没，而手机上根本看不到那行报错。
+   2. 每个入口先 syncTouches(e) 对账，卡死的触点自己会恢复。
+   3. 属于游戏的触摸一律 preventDefault（所以监听器必须 passive:false）：
+      光靠 CSS 的 touch-action:none 在 WKWebView 里不保险，宿主的滚动视图照样能
+      把手势抢走，一抢走就是 touchcancel，摇杆当场断。 */
 addEventListener('touchstart', e => {
   hideTouchGuide();
+  syncTouches(e);
+  touchDiag.start++;
   if (state !== 'play') return;
   audioInit();
-  for (const t of e.changedTouches){
+  const list = e.changedTouches;
+  let claimed = false;
+  for (let i = 0; i < list.length; i++){
+    const t = list[i];
     if (onUiElement(t)) continue;
-    // 直接点底部武器栏换枪：比循环切一圈快，也是最好找的入口。
-    // 换成功才吃掉这根手指；没换成（锁着 / 没弹药）就照常当摇杆用，别让人动不了
+    claimed = true;
     const p = clientToCanvas(t.clientX, t.clientY);
     const slot = weaponSlotAt(p.x, p.y);
-    if (slot >= 0 && selectWeapon(slot)) continue;
-    if (t.clientX < innerWidth/2 && tMove.id === null){
-      tMove = { id:t.identifier, ox:t.clientX, oy:t.clientY, vx:0, vy:0 };
+    const left = t.clientX < innerWidth/2;
+    // 右半边（射击区）点武器栏立刻换枪，跟以前一样：那边的手指本来就不管走位。
+    // 左半边不能这么干——手机竖屏时拇指自然落在屏幕下沿，那正好压着武器栏，
+    // 于是每次按下都变成「换枪」，人一步都走不了。左边改成先当摇杆，抬手时再结算轻点
+    if (slot >= 0 && !left && selectWeapon(slot)) continue;
+    if (left && tMove.id === null){
+      tMove = { id:t.identifier, ox:t.clientX, oy:t.clientY, vx:0, vy:0,
+                slot, t0:performance.now() };
       placeStick(stickL, t.clientX, t.clientY); placeNub(nubL,0,0);
       ghostL.classList.add('fade');
-    } else if (t.clientX >= innerWidth/2 && tFire.id === null){
-      tFire = { id:t.identifier, ox:t.clientX, oy:t.clientY, vx:0, vy:0 };
+    } else if (!left && tFire.id === null){
+      tFire = { id:t.identifier, ox:t.clientX, oy:t.clientY, vx:0, vy:0,
+                slot:-1, t0:performance.now() };
       placeStick(stickR, t.clientX, t.clientY); placeNub(nubR,0,0);
       ghostR.classList.add('fade');
     }
   }
-}, { passive:true });
+  if (claimed){ touchDiag.claimed++; if (e.cancelable){ e.preventDefault(); touchDiag.pd++; } }
+}, { passive:false });
 addEventListener('touchmove', e => {
-  for (const t of e.changedTouches){
+  syncTouches(e);
+  touchDiag.move++;
+  const list = e.changedTouches;
+  let claimed = false;
+  for (let i = 0; i < list.length; i++){
+    const t = list[i];
     if (t.identifier === tMove.id){
-      tMove.vx = t.clientX - tMove.ox; tMove.vy = t.clientY - tMove.oy; placeNub(nubL, tMove.vx, tMove.vy);
+      tMove.vx = t.clientX - tMove.ox; tMove.vy = t.clientY - tMove.oy;
+      placeNub(nubL, tMove.vx, tMove.vy); claimed = true;
     } else if (t.identifier === tFire.id){
-      tFire.vx = t.clientX - tFire.ox; tFire.vy = t.clientY - tFire.oy; placeNub(nubR, tFire.vx, tFire.vy);
+      tFire.vx = t.clientX - tFire.ox; tFire.vy = t.clientY - tFire.oy;
+      placeNub(nubR, tFire.vx, tFire.vy); claimed = true;
     }
   }
-}, { passive:true });
+  if (claimed && e.cancelable) e.preventDefault();
+}, { passive:false });
+// 左半边那根手指抬起来时结算：没拖动过、按得也短，才算「点了一下武器栏」
+const TAP_SLOP = 14, TAP_MS = 400;
 function releaseTouches(e){
-  for (const t of e.changedTouches){
+  const list = e.changedTouches;
+  for (let i = 0; i < list.length; i++){
+    const t = list[i];
     if (t.identifier === tMove.id){
-      tMove = { id:null, ox:0, oy:0, vx:0, vy:0 };
-      stickL.style.display = 'none'; ghostL.classList.remove('fade');
+      if (e.type === 'touchend' && tMove.slot >= 0 && state === 'play' &&
+          Math.hypot(tMove.vx, tMove.vy) < TAP_SLOP &&
+          performance.now() - tMove.t0 < TAP_MS) selectWeapon(tMove.slot);
+      releaseMove();
     }
-    if (t.identifier === tFire.id){
-      tFire = { id:null, ox:0, oy:0, vx:0, vy:0 };
-      stickR.style.display = 'none'; ghostR.classList.remove('fade');
-    }
+    if (t.identifier === tFire.id) releaseFire();
   }
+  syncTouches(e);      // 兜一遍：万一 changedTouches 漏了谁，对账还能把它捡回来
 }
-addEventListener('touchend', releaseTouches, { passive:true });
+addEventListener('touchend', e => { touchDiag.end++; releaseTouches(e); }, { passive:true });
 // touchcancel 以前没接：系统手势/来电打断触摸时摇杆会卡在按下状态，人物一直往一个方向跑
-addEventListener('touchcancel', releaseTouches, { passive:true });
+addEventListener('touchcancel', e => { touchDiag.cancel++; releaseTouches(e); }, { passive:true });
 swapBtn.addEventListener('click', () => { if (state==='play') cycleWeapon(1); });
 ultBtn.addEventListener('click', () => { if (state==='play') requestUlt(); });
 pauseBtn.addEventListener('click', () => {
@@ -948,25 +1046,33 @@ addEventListener('contextmenu', e => {
 });
 
 /* ---------- 碰撞（世界边界 + 石柱圆形体 + 油桶） ---------- */
+// 两轮松弛：单轮是「推出 A 的同时被推进 B」，在成对石柱之间的窄缝里会左右弹一辈子，
+// 看着就是卡在墙里出不来。第二轮把第一轮制造出来的新重叠再收一次。
 function collide(o){
-  o.x = Math.max(o.r, Math.min(WW - o.r, o.x));
-  o.y = Math.max(o.r, Math.min(WH - o.r, o.y));
-  for (const p of pillars){
-    const dx = o.x - p.x, dy = o.y - p.y;
-    const min = o.r + p.r, d2 = dx*dx + dy*dy;
-    if (d2 < min*min && d2 > 0){
-      const d = Math.sqrt(d2);
-      o.x = p.x + dx/d*min; o.y = p.y + dy/d*min;
+  for (let pass = 0; pass < 2; pass++){
+    o.x = Math.max(o.r, Math.min(WW - o.r, o.x));
+    o.y = Math.max(o.r, Math.min(WH - o.r, o.y));
+    let moved = false;
+    for (const p of pillars){
+      const dx = o.x - p.x, dy = o.y - p.y;
+      const min = o.r + p.r, d2 = dx*dx + dy*dy;
+      if (d2 < min*min && d2 > 0){
+        const d = Math.sqrt(d2);
+        o.x = p.x + dx/d*min; o.y = p.y + dy/d*min;
+        moved = true;
+      }
     }
-  }
-  for (const b of barrels){
-    if (b.hp <= 0) continue;
-    const dx = o.x - b.x, dy = o.y - b.y;
-    const min = o.r + b.r, d2 = dx*dx + dy*dy;
-    if (d2 < min*min && d2 > 0){
-      const d = Math.sqrt(d2);
-      o.x = b.x + dx/d*min; o.y = b.y + dy/d*min;
+    for (const b of barrels){
+      if (b.hp <= 0) continue;
+      const dx = o.x - b.x, dy = o.y - b.y;
+      const min = o.r + b.r, d2 = dx*dx + dy*dy;
+      if (d2 < min*min && d2 > 0){
+        const d = Math.sqrt(d2);
+        o.x = b.x + dx/d*min; o.y = b.y + dy/d*min;
+        moved = true;
+      }
     }
+    if (!moved) break;
   }
 }
 function hitPillar(x, y, r){
@@ -983,6 +1089,23 @@ function losBlocked(x0, y0, x1, y1){
     if (hitPillar(x0 + (x1-x0)*i/steps, y0 + (y1-y0)*i/steps, 0)) return true;
   }
   return false;
+}
+/* 挡在 (x0,y0)→(x1,y1) 这条线段上、离起点最近的那根石柱；没有就返回 null。
+   半径按「柱子 + 自己 + 一点余量」算：贴着柱面擦过去在观感上就是卡住，
+   留出余量算出来的切线才真的走得开。绕障和「路通了没有」都用这一个判断，
+   免得走的时候按 A 标准、判断的时候按 B 标准。 */
+function blockingPillar(x0, y0, x1, y1, r){
+  const vx = x1-x0, vy = y1-y0;
+  const len2 = vx*vx + vy*vy;
+  let best = null, bestT = Infinity;
+  for (const p of pillars){
+    const R = p.r + r;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x-x0)*vx + (p.y-y0)*vy) / len2)) : 0;
+    const cx = x0 + vx*t - p.x, cy = y0 + vy*t - p.y;
+    if (cx*cx + cy*cy >= R*R) continue;
+    if (t < bestT){ bestT = t; best = p; }
+  }
+  return best;
 }
 
 /* ---------- 敌人生成（从世界四周边缘进场） ---------- */
@@ -1001,7 +1124,9 @@ function makeZombie(x, y, elite){
   return { x, y, r:12, hp, maxhp:hp,
     walk:0, spd:(46 + wave*1.5) * (0.85 + Math.random()*0.35) * (elite ? 1.3 : 1),
     atk:0, fx:0, fy:1, hit:0, wob:Math.random()*6.28,
-    chk:.5 + Math.random()*.5, stuck:0, side:Math.random() < .5 ? 1 : -1 };
+    chk:.5 + Math.random()*.5, stuck:0,
+    side:0,                                    // 当前绕行方向：0 = 没被挡，路是通的
+    pref:Math.random() < .5 ? 1 : -1 };        // 正对柱心时往哪边绕，各人有各人的偏好
 }
 function makeDevil(x, y){
   const hp = Math.ceil((60 + wave*4) * DIF().hp);
@@ -1047,8 +1172,12 @@ function shoot(p, now){
   const localFeedback = p === player;
   if (now - p.lastShot < w.rate) return;
   if (!w.infinite && p.ammo[p.weapon] <= 0){
+    // 打空了总得换一把，但不能一声不吭地变成手枪——那跟「枪自己乱切」是同一种体验
     p.weapon = 0;
-    if (localFeedback) sfx('click');
+    if (localFeedback){
+      sfx('click');
+      banners.push({ text:w.name + ' 弹药耗尽', sub:'已自动换回手枪', life:1.3, small:true });
+    }
     return;
   }
   p.lastShot = now;
@@ -1163,9 +1292,14 @@ function updateMulti(){
       for (const p of newlyUnlocked){
         p.unlocked[i] = true;
         p.ammo[i] += WEAPONS[i].give;
-        p.weapon = i;
+        /* 解锁不再无条件 p.weapon = i。原来那样写，正打着加特林的人会在某次击杀之后
+           突然变成拿手雷——没按任何键，横幅也不一定看得见，感受就是「偶尔自动切枪」。
+           只在手上这把已经用不了（空弹匣）或还是开局那把手枪时，才自动装上新枪。 */
+        if (p.weapon === 0 || !weaponUsable(p, p.weapon)) p.weapon = i;
       }
-      banners.push({ text:'解锁新武器', sub:WEAPONS[i].name + '！', life:2.4 });
+      banners.push({ text:'解锁新武器',
+        sub:WEAPONS[i].name + (player && player.weapon === i ? '！已装备' : '！点武器栏切换'),
+        life:2.4 });
       sfx('unlock');
     }
   }
@@ -1283,7 +1417,7 @@ function collectLocalInput(dt){
     firing = true;
   }
   // 自动瞄准放在最后：上面各模式先给出「玩家的意图方向」，这里再修正或接管
-  [ax, ay] = applyAimAssist(player, ax, ay);
+  [ax, ay] = applyAimAssist(player, ax, ay, dt);
   return { seq:++localInputSeq, mx, my, ax, ay, fire:firing,
     weapon:localDesiredWeapon ?? player.weapon, ultSeq:localUltSeq };
 }
@@ -1489,29 +1623,51 @@ function update(dt, now){
     const target = targetInfo.player;
     const dx = target.x - z.x, dy = target.y - z.y, d = targetInfo.distance||1;
     z.wob += dt*3;
-    // 卡住检测：每 0.5 秒看一次距离有没有真的拉近（比每帧射线便宜得多）
+    /* 卡住检测：看的是「自己这半秒真的挪了多远」，不是「跟玩家的距离有没有拉近」。
+       原来那版用距离，两头都会错：玩家绕着圈跑，明明在走的僵尸被判成卡住；
+       玩家迎面走过来，真卡死的僵尸反而一直判成正常。 */
     z.chk -= dt;
     if (z.chk <= 0){
       z.chk = .5;
-      if (z.lastD !== undefined && z.lastD - d < 8){
+      const moved = z.px === undefined ? Infinity : Math.hypot(z.x - z.px, z.y - z.py);
+      // 已经贴上去开咬的不算卡住——它就该站着不动，
+      // 判成卡住会让它顺手把玩家脚边的油桶点了
+      if (d > z.r + target.r + 10 && moved < z.spd * .5 * .35){
         z.stuck++;
-        if (z.stuck >= 4){ z.side = -z.side; z.stuck = 1; }   // 绕反了就换个方向
+        if (z.stuck >= 3){ z.side = -z.side || z.pref; z.stuck = 1; }   // 这边绕不出去，换一边
       } else z.stuck = 0;
-      z.lastD = d;
+      z.px = z.x; z.py = z.y;
     }
-    let sx = dx/d + Math.cos(z.wob)*.25;
-    let sy = dy/d + Math.sin(z.wob)*.25;
-    if (z.stuck > 0){
-      // 被石柱/油桶/同伴卡住就切向绕行。原来只会直冲，站到柱子后面就能无限安全收割
-      const k = Math.min(1.15, z.stuck * .45);
-      sx += -dy/d * z.side * k; sy += dx/d * z.side * k;
-      // 卡久了就砸挡路的油桶：围墙会自己炸开，堆桶挡门不再是永久解
-      if (z.stuck >= 2){
-        for (const bl of barrels){
-          if (bl.hp > 0 && bl.fuse === undefined &&
-              Math.hypot(bl.x - z.x, bl.y - z.y) < bl.r + z.r + 6){
-            bl.fuse = .4; sfx('click'); break;
-          }
+    /* 绕障：对着挡路的那根柱子算切线，直接朝「刚好擦过柱边」的方向走。
+       老办法是往侧面推一个分量，最多偏 49°，而且每 2 秒强制换一次边；
+       绕过一根 r=64 的柱子要走 3 秒以上，于是永远绕不完，僵尸就在柱背面来回蹭——
+       玩家往柱子后一站就是无限安全收割，正是「卡在墙体后过不来」。
+       现在边一旦选定就守住，直到线真的通了才松开。 */
+    const blocker = blockingPillar(z.x, z.y, target.x, target.y, z.r + 4);
+    let sx, sy;
+    if (blocker){
+      const bx = blocker.x - z.x, by = blocker.y - z.y;
+      const L = Math.hypot(bx, by) || 1;
+      const R = blocker.r + z.r + 4;
+      if (!z.side){
+        // 第一次被挡：往玩家所在的那一侧绕，路更短；正对柱心时用自己的偏好
+        const cross = bx*dy - by*dx;
+        z.side = cross > 0 ? 1 : (cross < 0 ? -1 : z.pref);
+      }
+      const spread = Math.asin(Math.min(1, R / Math.max(L, R))) + .12;
+      const a = Math.atan2(by, bx) + z.side * spread;
+      sx = Math.cos(a); sy = Math.sin(a);
+    } else {
+      z.side = 0;                                   // 路通了，下次再被挡重新选边
+      sx = dx/d + Math.cos(z.wob)*.25;
+      sy = dy/d + Math.sin(z.wob)*.25;
+    }
+    // 卡久了就砸挡路的油桶：围墙会自己炸开，堆桶挡门不再是永久解
+    if (z.stuck >= 2){
+      for (const bl of barrels){
+        if (bl.hp > 0 && bl.fuse === undefined &&
+            Math.hypot(bl.x - z.x, bl.y - z.y) < bl.r + z.r + 6){
+          bl.fuse = .4; sfx('click'); break;
         }
       }
     }
@@ -2497,6 +2653,38 @@ function drawPickup(c, p){
   }
 }
 
+/* 触屏诊断浮层。
+   「iOS 端无法移动」这类问题本机复现不出来，全靠别人的真机；
+   没有这一层，回来的反馈只能是「就是动不了」，等于没有信息。
+   打开后左上角实时显示触点账目，让人截一张图就能定位到底断在哪一环：
+     · live 一直是 0        → 触摸事件根本没进来（容器把手势整个吞了）
+     · start 涨、move 不涨  → 拖动被宿主的滚动接管了
+     · cancel 在涨          → 手势被中途抢走，正是摇杆断的那一下
+     · pd < claim           → preventDefault 没生效（事件不可取消），治不住抢手势
+     · move.id 一直非空但 vec 不动 → 触点卡死了，对账那一步没兜住 */
+function drawTouchDiag(){
+  if (!touchDebug) return;
+  const L = [
+    'live ' + touchDiag.live + '  start ' + touchDiag.start + '  move ' + touchDiag.move,
+    'end ' + touchDiag.end + '  cancel ' + touchDiag.cancel +
+      '  claim ' + touchDiag.claimed + '  pd ' + touchDiag.pd,
+    'move id ' + tMove.id + '  vec ' + Math.round(tMove.vx) + ',' + Math.round(tMove.vy) +
+      '  slot ' + tMove.slot,
+    'fire id ' + tFire.id + '  vec ' + Math.round(tFire.vx) + ',' + Math.round(tFire.vy),
+    'win ' + innerWidth + '×' + innerHeight + '  view ' + VW + '×' + VH +
+      '  scale ' + viewScale.toFixed(2),
+    'touch ' + isTouch + '  coarse ' + coarsePointer + '  pts ' + (navigator.maxTouchPoints || 0),
+  ];
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 12px monospace';
+  ctx.fillStyle = 'rgba(8,10,13,.82)';
+  ctx.fillRect(8, 44, 286, L.length*15 + 10);
+  ctx.fillStyle = '#7dffb0';
+  for (let i = 0; i < L.length; i++) ctx.fillText(L[i], 14, 60 + i*15);
+  ctx.restore();
+}
+
 /* ========================================================
    主渲染：镜头 + 深度排序
    ======================================================== */
@@ -2607,6 +2795,7 @@ function drawHUD(){
     if (!un) ctx.fillText('×' + WEAPONS[i].unlock + ' 解锁', x+slotW/2, y0+33);
     else ctx.fillText(WEAPONS[i].infinite ? '∞' : ('弹药 ' + player.ammo[i]), x+slotW/2, y0+33);
   }
+  drawTouchDiag();
   // 中央横幅
   let by = VH*0.30;
   for (const b of banners){
@@ -3098,6 +3287,18 @@ function toggleAim(){
 }
 aimBtns.forEach(b => { if (b) b.onclick = toggleAim; });
 refreshAimBtns();
+/* 触屏诊断开关。默认关，也不记进 localStorage——它是排查用的，不该有人下次进来还开着 */
+const btnTouchDbg = document.getElementById('btnTouchDbg');
+if (btnTouchDbg){
+  const refresh = () => { btnTouchDbg.textContent = '触屏诊断：' + (touchDebug ? '开' : '关'); };
+  btnTouchDbg.onclick = () => {
+    touchDebug = !touchDebug;
+    if (touchDebug){ touchDiag.start = touchDiag.move = touchDiag.end = 0;
+                     touchDiag.cancel = touchDiag.claimed = touchDiag.pd = 0; }
+    refresh(); sfx('click');
+  };
+  refresh();
+}
 /* ---------- 难度选择（记在本地，下次进来还是这一档） ---------- */
 const btnDiff = document.getElementById('btnDiff');
 const savedDiff = DIFFS.findIndex(d => d.key === localStoreGet(DIFF_KEY));

@@ -30,16 +30,23 @@ function constant(name){
 }
 
 const ctx = {
-  VW: 960, VH: 640,
+  VW: 960, VH: 640, WW: 1920, WH: 1280,
   cam: { x: 0, y: 0 },
   zombies: [], devils: [], bosses: [], barrels: [],
+  pillars: [],                       // 选靶要过一道视线检测，石柱由各条用例自己摆
   AIM_BACK_BIAS: constant('AIM_BACK_BIAS'),
   AIM_STICKY: constant('AIM_STICKY'),
   AIM_BARREL_PREF: constant('AIM_BARREL_PREF'),
 };
 vm.createContext(ctx);
-vm.runInContext(extract('pickAimTarget') + '\nglobalThis.__pick = pickAimTarget;', ctx);
+// hitPillar / losBlocked / blockingPillar 也从源码里抠，
+// 视线规则和绕障判断测的就是仓库里那一份
+const SRC = [extract('hitPillar'), extract('losBlocked'), extract('blockingPillar'),
+  extract('pickAimTarget'),
+  'globalThis.__pick = pickAimTarget; globalThis.__blocking = blockingPillar;'].join(String.fromCharCode(10));
+vm.runInContext(SRC, ctx);
 const pick = ctx.__pick;
+const blockingPillar = ctx.__blocking;
 
 const CONE_MOUSE = constant('AIM_CONE_MOUSE');
 const P = () => ({ x: 480, y: 320, aimLock: null });          // 玩家站在视口中心
@@ -48,6 +55,7 @@ const B = (x, y, extra) => Object.assign({ x, y, r: 11, hp: 1 }, extra);   // �
 
 test.afterEach(() => {
   ctx.zombies = []; ctx.devils = []; ctx.bosses = []; ctx.barrels = [];
+  ctx.pillars = [];
   ctx.cam = { x:0, y:0 };
 });
 
@@ -170,4 +178,79 @@ test('不传 barrelMode 时按硬锁定的老行为走，油桶不进池', () =>
   ctx.barrels = [B(500, 320)];
   ctx.zombies = [Z(680, 320)];
   assert.strictEqual(pick(P(), 1, 0, 560, null), ctx.zombies[0]);
+});
+
+/* ---------- 视线：石柱后面的不锁 ---------- */
+
+test('石柱挡着的不锁——不然就是一边被咬一边对着石头开枪', () => {
+  ctx.pillars = [{ x: 560, y: 320, r: 40 }];        // 正好卡在玩家和僵尸中间
+  ctx.zombies = [Z(700, 320)];
+  assert.strictEqual(pick(P(), 1, 0, 560, null), null);
+});
+
+test('挡住的让位给打得到的，哪怕后者远一截', () => {
+  ctx.pillars = [{ x: 560, y: 320, r: 40 }];
+  const blocked = Z(700, 320);                      // 220px，但在柱子后面
+  const clear   = Z(480, 600);                      // 280px，正下方，路是通的
+  ctx.zombies = [blocked, clear];
+  assert.strictEqual(pick(P(), 1, 0, 700, null), clear);
+});
+
+test('柱子在目标背后不算挡：只看玩家到目标这一段', () => {
+  ctx.pillars = [{ x: 820, y: 320, r: 40 }];        // 在僵尸更远的那一侧
+  ctx.zombies = [Z(700, 320)];
+  assert.strictEqual(pick(P(), 1, 0, 560, null), ctx.zombies[0]);
+});
+
+/* ---------- 粘性：这一组针对的就是「方向一换就乱打」 ---------- */
+
+test('冷静期粘性更强：刚换过靶时，小幅更近的抢不走', () => {
+  const p = P();
+  const locked = Z(400, 320);                       // 80px
+  p.aimLock = locked;
+  ctx.zombies = [locked, Z(415, 320)];              // 65px，近 19%
+  const STICKY = constant('AIM_STICKY');
+  const HOLD   = constant('AIM_STICKY_HOLD');
+  assert.ok(HOLD > STICKY, '冷静期的粘性必须比常态大，否则这一档没有意义');
+  assert.strictEqual(pick(p, 1, 0, 560, null, 'off', STICKY), ctx.zombies[1]);  // 常态会被抢走
+  assert.strictEqual(pick(p, 1, 0, 560, null, 'off', HOLD), locked);            // 冷静期抢不走
+});
+
+test('冷静期也不是焊死：贴脸的照样抢得过', () => {
+  const p = P();
+  const locked = Z(400, 320);                       // 80px
+  p.aimLock = locked;
+  ctx.zombies = [locked, Z(490, 320)];              // 10px
+  assert.strictEqual(pick(p, 1, 0, 560, null, 'off', constant('AIM_STICKY_HOLD')),
+                     ctx.zombies[1]);
+});
+
+/* ---------- 绕障：挡路的是哪根柱子 ---------- */
+
+test('挡路的柱子能认出来，没挡的不认', () => {
+  const pil = { x: 300, y: 300, r: 40 };
+  ctx.pillars = [pil];
+  assert.strictEqual(blockingPillar(200, 300, 500, 300, 12), pil);   // 迎面撞上
+  assert.strictEqual(blockingPillar(200, 100, 500, 100, 12), null);  // 从上方 200px 掠过
+});
+
+test('两根都挡时取更靠近起点的那一根：先绕眼前这个', () => {
+  const near = { x: 300, y: 300, r: 30 };
+  const far  = { x: 600, y: 300, r: 30 };
+  ctx.pillars = [far, near];                        // 故意把远的放在数组前面
+  assert.strictEqual(blockingPillar(200, 300, 900, 300, 12), near);
+});
+
+test('判定半径带上自身与余量：擦边过不去的也算挡住', () => {
+  const pil = { x: 300, y: 300, r: 30 };
+  ctx.pillars = [pil];
+  // 从柱心侧向 44px 掠过：光看 30 已经躲开了，但 30+16=46 还是挡着。
+  // 贴着柱面擦过去在观感上就是卡住，所以按后者算
+  assert.strictEqual(blockingPillar(200, 344, 500, 344, 0), null);
+  assert.strictEqual(blockingPillar(200, 344, 500, 344, 16), pil);
+});
+
+test('线段之外的柱子不算：目标在柱子这一侧时不该被自己身后的柱子绊住', () => {
+  ctx.pillars = [{ x: 100, y: 300, r: 60 }];        // 在起点背后
+  assert.strictEqual(blockingPillar(200, 300, 500, 300, 12), null);
 });
