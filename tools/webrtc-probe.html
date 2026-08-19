@@ -94,6 +94,7 @@
   <h2>诊断日志</h2>
   <div id="log"></div>
   <button class="ghost" id="btnReport">复制完整诊断报告</button>
+  <button class="ghost" id="btnReset">重来一次（不用关页面）</button>
 </div>
 
 <script>
@@ -162,7 +163,9 @@ const STUN = [{ urls: 'stun:stun.miwifi.com:3478' }, { urls: 'stun:stun.qq.com:3
 
 function createPeer(){
   const useStun = $('useStun').checked;
-  $('useStun').disabled = true;   // 连接一旦建起来，模式就定死了，别让它中途变化误导日志
+  // 连接期间锁住模式，免得中途改了把日志搞乱；但失败/重来时必须解锁——
+  // 「连不上再勾 STUN 跑一次」正是要在这之后做，锁死了就等于把重试路径堵死。
+  $('useStun').disabled = true;
   pc = new RTCPeerConnection({ iceServers: useStun ? STUN : [] });
   log(useStun ? '模式：局域网 + 公共 STUN' : '模式：纯局域网（不配任何 iceServer）', 'key');
 
@@ -181,7 +184,8 @@ function createPeer(){
     log('ice: ' + pc.iceConnectionState, pc.iceConnectionState === 'failed' ? 'bad' : '');
     if (pc.iceConnectionState === 'failed'){
       setState('连接失败', 'bad');
-      log('ICE 失败 —— 这一档没打通，去勾 STUN 再跑一次对比', 'bad');
+      $('useStun').disabled = false;      // 失败了就把模式解锁，好让人换一档重来
+      log('ICE 失败 —— 点最下面「重来一次」，勾上 STUN 再跑一遍做对比', 'bad');
     }
   };
   pc.onconnectionstatechange = () => log('conn: ' + pc.connectionState);
@@ -223,6 +227,35 @@ function startPing(){
 function stopTimers(){
   clearInterval(statsTimer); clearInterval(pingTimer);
   statsTimer = pingTimer = null;
+}
+
+/* 重来一次：不用关页面就能换模式重测。
+   之前没有这个，失败之后 useStun 一直是禁用的，「连不上再勾 STUN 跑一次」根本做不到——
+   等于把整个对照实验堵死了。 */
+function resetProbe(){
+  stopTimers();
+  for (const obj of [dc, pc]){
+    if (!obj) continue;
+    obj.onclose = obj.onerror = obj.onmessage = obj.onopen = null;
+    obj.oniceconnectionstatechange = obj.onicecandidate = obj.onicecandidateerror = null;
+    obj.onicegatheringstatechange = obj.onconnectionstatechange = obj.ondatachannel = null;
+    try { obj.close(); } catch (_) {}
+  }
+  pc = dc = null;
+  isHost = false;
+  pingSeq = 0;
+  rtts.length = 0;
+
+  $('useStun').disabled = false;
+  $('btnApply').disabled = false;
+  $('cardRole').classList.remove('hidden');
+  $('cardOut').classList.add('hidden');
+  $('cardIn').classList.add('hidden');
+  $('outBox').value = ''; $('inBox').value = ''; $('outSize').textContent = '';
+  $('rPath').innerHTML = '—'; delete $('rPath').dataset.v;
+  $('rLocal').textContent = '—'; $('rRemote').textContent = '—'; $('rRtt').textContent = '—';
+  setState('未开始', 'warn');
+  log('—— 已重置。要跑对照实验：先勾/取消 STUN，再选角色 ——', 'key');
 }
 
 /* 这是整个探针真正要的答案：选中的候选对是哪一种。
@@ -422,6 +455,7 @@ async function copyText(text, okMsg){
   log(ok ? okMsg + '（走的兜底通道）' : '复制被拦了，请手动长按选中文本框', ok ? 'ok' : 'bad');
 }
 
+$('btnReset').onclick = resetProbe;
 $('btnSelf').onclick = selfCheck;
 $('btnHost').onclick = startHost;
 $('btnGuest').onclick = startGuest;
