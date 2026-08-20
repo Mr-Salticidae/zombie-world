@@ -199,39 +199,60 @@ toy update 19242799980544 release\zombie-world.zip --poster images\poster.png --
 删了评论就没了。它不能改成公开——Toy 平台规定 link-only 无法转公开，只能换 slug 新建，
 公开版正是这么来的。详见上文《Toy 平台能力（JS SDK）》同批查证记录。
 
-## Toy 平台能力（JS SDK）—— 查证记录 2026-08-07
+## Toy 平台能力（JS SDK）—— 查证记录 2026-08-20
 
-结论先写在这：**Toy JS SDK 没有联机 / 实时同步 / 房间能力，不要再指望用它做多人对战。**
+结论先写在这两条：
 
-核查方式：从发布平台前端包（`//s1.hdslb.com/bfs/static/toy/app/publish/assets/index-*.js`）里取出
-SDK 文档数据，并直接下载 SDK 本体 `//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js` 检索。
-**SDK 版本 1.5.0，更新于 2026-07-31**，全部能力共 18 个：
+1. **排行榜没有任何变化。** `submitScore` / `getRankList` / `getMyRank` 的入参、返回、
+   App / Web 支持情况与上一次查证（2026-08-07）完全一致，游戏这边一行都不用改。
+2. **Toy JS SDK 没有联机 / 实时同步 / 房间能力**，热点直连（`p2p.js`）那条路仍然是唯一解。
+
+核查方式：直接下载 SDK 本体 `//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js`（120,917 字节）
+逐项检索，并从发布平台前端包 `//s1.hdslb.com/bfs/static/toy/app/publish/assets/index-*.js`
+（`Last-Modified: 2026-08-18`）里取出 SDK 文档数据。
+**文档版本 1.6.0，更新于 2026-08-12**（上次查到的是 1.5.0 / 2026-07-31），能力从 18 个增至 20 个：
 
 | 分类 | API | B站 App | Web 端 |
 |---|---|---|---|
 | 容器 | `isSupport` `navigate` | ✅ | ✅ |
-| 容器 | `saveImageToAlbum` `closeBrowser` | ✅ | — |
+| 容器 | `saveImageToAlbum` `closeBrowser` `share` 🆕 | ✅ | — |
+| 容器 | `getQrCode` 🆕 | ✅ | ✅ |
 | 用户/作者 | `getUserProfile` `getAuthorProfile` `getAuthorVideos` `getAuthorRelation` `getVideoUserActions` | ✅ | ✅ |
 | 云存储 | `setCloudStorage` `getCloudStorage` `removeCloudStorage` | ✅ | ✅ |
 | 排行榜 | `submitScore` `getRankList` `getMyRank` | ✅ | ✅ |
 | 媒体 | `requestCamera` `requestMicrophone` `stopMedia` | ✅ | ✅ |
 
-在 `toy-sdk.js` 里精确检索：`websocket` / `createRoom` / `joinRoom` / `roomId` / `realtime` /
-`multiplayer` / `matchmaking` **均为 0 次命中**。文件里出现 140 多次的 `room` 全部来自
-`liveRoomHalf.*`（B站直播间 JSBridge，SDK 顺带打包的通用桥），与游戏联机无关；
-唯一一处 `RTCPeerConnection` 是 SDK 与宿主容器通信的内部管道，不是对外能力。
+（SDK 包里还有一个 `reportAction`，但它不在公开文档的能力清单里，是 SDK 自己的埋点通道，别用。）
 
-要做「不用自建服务器的多人感」，方向是**排行榜 + 云存储**（异步竞争而非实时同框）：
+### 新增的两个能力
 
-- 排行榜按「toy + 榜位 + 周期」隔离；榜位固定 `1/2/3`（含义自定，如榜1 得分、榜2 波数）；
-  周期 `all`（永久）/ `month` / `week` / `day`
-- 分数为整数，范围 `-16777216 ~ 16777215`，允许 0 与负数；固定从高到低排序，
-  同分先达成者靠前（先到先赢），名次唯一不并列
-- **读榜游客可读**，上报分数需登录；判断是否上榜必须看返回的 `ranked` 字段，**不能用 `score` 判断**
-- 云存储按「登录用户 + Toy」隔离，单个 Toy 最多 128 个 key-value，需登录但不触发用户数据确认
-- 接入前一律先 `await toy.isSupport('xxx')` 判断，SDK 缺失/环境不支持时要能降级
+- **`toy.share({ path })`**（仅 App）：拉起 B站原生分享面板。**只能传相对当前 Toy 的路径**，
+  完整链接由平台拼，Toy 不能自己指定 URL。
+- **`toy.getQrCode({ path, size })`**（App + Web）：返回 `{ base64, url }`，
+  `base64` 可直接当 `img.src`。`path` 可带 query（`result.html?score=100`），
+  `size` 取 80~1024。同样**只能编码当前 Toy 内的页面**，
+  文档原话：想给任意字符串出码就自己打包一个二维码库。
 
-文档入口：发布平台页内路由 `/sdk`（「开放能力」→ JS SDK / CLI / Skill 三个页签）。
+对本项目的两处潜在用途，都还没做：
+
+- 热点联机的邀请码现在靠复制粘贴。`share` 能把「带码的链接」丢进原生分享面板，
+  比手动复制到微信顺手；`getQrCode` 理论上也能把码塞进 query 出成二维码，
+  但**容量仍然是拦路虎**——手机能稳拍清的二维码约 300~500 字节，而当前的无损压缩码远超这个数。
+  换句话说：新 API 让这条路从「不可能」变成「要先把码压下来」，前置条件没变。
+- 结算页出一张带成绩的二维码 / 分享卡，纯锦上添花。
+
+### 为什么排行榜只能在 Toy 平台里工作
+
+这条值得单独记，免得以后反复：**排行榜不是「有 SDK 就能用」，是「跑在 Toy 宿主页里才能用」。**
+SDK 里的排行榜实现是 `V().request({ kind:'rank', ... })`，`V()` 是一个**与父窗口握手的通道**
+（`getParentOrigin()` / `getToyId()`，握手没完成 `isReady()` 就是 false）；
+Toy 的身份来自 `window.__TOY_META__.toy_id`，拿不到就回落到问父窗口要。
+
+所以在 `https://www.bilibili.com/toy/<slug>/` 之外的任何地方——本地 `http://localhost`、
+站外静态托管、Claude Artifact 预览版——都**没有 toy id、也没有可握手的宿主**，排行榜必然不可用。
+这跟 SDK 版本无关，升级 SDK 不会改变这一点。游戏里 `rankReady()` 那道判断
+（`window.toy` 上有没有 `getRankList` / `submitScore`）本来就只是「入口显不显示」，
+判不出来也没关系——真调用失败时 `loadRank()` 会把错误原样显示出来。
 
 ## 排行榜
 
@@ -248,6 +269,8 @@ SDK 文档数据，并直接下载 SDK 本体 `//s1.hdslb.com/bfs/seed/toy/app/s
 - 榜单里的昵称是**别人可控的文本**，一律走 `textContent` 构建 DOM，不拼 `innerHTML`。
 - **拿不到 SDK 的环境**（本地开发、站外托管、CDN 挂掉）：主菜单排行榜入口保持隐藏、
   结算页一个字都不提排行榜，游戏本体完全不受影响。
+- 光有 SDK 还不够：排行榜要求页面跑在 **Toy 宿主页**里（要有 toy id、要能和父窗口握手），
+  所以 `localhost` 和站外预览一律用不了，跟 SDK 版本无关。见上一节末尾。
 
 分数上限 16777215，本作实际到不了；上报前仍统一 `clampScore` 夹到 `0 ~ 16777215` 并取整。
 
