@@ -288,6 +288,18 @@ function sfx(type){
     case 'click':
       noiseHit(.04, 'bandpass', 2600, 4, .25);
       break;
+    case 'coin':                                   // 捡钱：两声短促的高频叮，别盖过枪声
+      sweep('triangle', 1180, 1180, .05, .16);
+      sweep('triangle', 1760, 1760, .07, .13, .04);
+      break;
+    case 'buy':                                    // 成交：低一档的两声，跟捡钱区分开
+      sweep('triangle', 780, 780, .06, .2);
+      sweep('triangle', 1170, 1170, .1, .16, .05);
+      noiseHit(.05, 'bandpass', 3000, 4, .18);
+      break;
+    case 'nope':                                   // 钱不够 / 买不了
+      sweep('square', 210, 150, .12, .2);
+      break;
   }
 }
 
@@ -525,7 +537,7 @@ const SK_NAMES = { summon:'召唤', charge:'冲锋', spit:'毒吐', slam:'震地
 let state = 'menu';
 let controlMode = 'classic';   // 'classic' 键盘经典 | 'mouse' 鼠标点击移动
 let player, zombies, devils, bosses, bullets, grenades, rockets, barrels, fireballs,
-    particles, pickups, banners, hazards, cam;
+    particles, pickups, banners, hazards, coins, cam;
 let wave, spawnQueue, devilQueue, spawnTimer, waveRest, score, kills,
     streak, multiplier, bestMulti, comboTimer, decayTimer, shake, time, frameN;
 let gameOverTimer = null;
@@ -542,6 +554,7 @@ let players = new Map();
 let netMode = 'solo';          // solo | host | guest
 let netInputs = new Map();
 let localInputSeq = 0, localUltSeq = 0, localDesiredWeapon = null, lastInputSent = 0;
+let localBuySeq = 0, localBuyId = '';        // 客机的购买请求：房主权威结账
 let snapshotTick = 0, lastSnapshotSent = 0;
 let lastGuestSnapshotAt = 0;
 let restoringSavedSession = false;
@@ -557,6 +570,7 @@ function makePlayer(member, slot){
              ammo: WEAPONS.map((w,i) => i ? 0 : Infinity),
              unlocked: WEAPONS.map((w,i) => i === 0), inv: 0, flash: 0,
              ultCharge:1, ultT:0, ultKills:0, swing:0, slashT:0,
+             cash:0, lastBuySeq:0,
              lastUltSeq:0, inputAt:0 };
 }
 
@@ -680,9 +694,11 @@ function reset(roster){
   player = players.get(localId) || players.values().next().value;
   netInputs = new Map();
   localInputSeq = 0; localUltSeq = 0; localDesiredWeapon = null; snapshotTick = 0;
+  localBuySeq = 0; localBuyId = '';
   cam = { x: WW/2 - VW/2, y: WH/2 - VH/2 };
   zombies = []; devils = []; bosses = []; bullets = []; grenades = []; rockets = [];
-  fireballs = []; particles = []; pickups = []; banners = []; hazards = [];
+  fireballs = []; particles = []; pickups = []; banners = []; hazards = []; coins = [];
+  floaters.length = 0; shopWave = 0; closeShop();
   barrels = BARREL_SPOTS.map(([x,y]) => ({ x, y, r: 11, hp: 1 }));
   wave = 0; spawnQueue = 0; devilQueue = 0; spawnTimer = 0; waveRest = 2.2;
   score = 0; kills = 0; streak = 0; multiplier = 1; bestMulti = 1;
@@ -871,7 +887,7 @@ function syncTouches(e){
 // 落在按钮/浮层上的手指不算摇杆——否则点「换枪」会顺手朝右上角打一梭子
 function onUiElement(t){
   const el = t.target;
-  return !!(el && el.closest && el.closest('button, .screen, #netHud, #rotate'));
+  return !!(el && el.closest && el.closest('button, .screen, #netHud, #rotate, #shop'));
 }
 function clientToCanvas(clientX, clientY){
   const r = cvs.getBoundingClientRect();
@@ -1304,9 +1320,187 @@ function updateMulti(){
     }
   }
 }
+/* ---------- 局内货币 ----------
+   只在这一局有效，死了归零；不进存档、不进排行榜。
+   为什么是「局内」而不是跨局养成：跨局货币会当场把排行榜变成「谁刷得久」，
+   而这个榜只收标准难度、比的正是同一套初始条件。详见 docs/currency-design-note.md。
+   钱只买消耗品——枪的所有权归连击，钱买不到，否则「连击解锁武器」这条核心成长线当场作废。 */
+const COIN_MAGNET = 100;     // 进这个半径就自己飞过来。手机上让人为了捡钱走进僵尸堆是坏设计
+const COIN_MERGE = 26;       // 这么近的新币并进旧的：一发火箭炸死十只不该掉一地
+const COIN_LIFE = 16;
+function coinCap(){ return isPhone() ? 70 : 150; }
+// 钱直接由击杀基础分折算，**不乘连击倍数**：倍数已经在管武器解锁了，
+// 再让它管钱，后期会同时出现「枪全解锁」和「钱多到没处花」，两条线一起失重
+function coinValue(baseScore){ return Math.max(1, Math.round(baseScore / 5)); }
+
+function dropCoin(x, y, value, ownerId){
+  for (const c of coins){
+    if (c.age < .5 && Math.hypot(c.x-x, c.y-y) < COIN_MERGE){ c.v += value; c.pop = .18; return; }
+  }
+  if (coins.length >= coinCap()){
+    // 屏幕上已经够多了就直接记账。钱一分不少，只是少了捡的那一下——
+    // 低端机上宁可少一个实体，也不能让爆炸连锁把帧数打下去
+    const owner = players.get(ownerId) || player;
+    if (owner) owner.cash += value;
+    return;
+  }
+  const a = Math.random()*6.28, sp = 40 + Math.random()*70;
+  coins.push({ x, y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, v:value, life:COIN_LIFE, age:0, pop:.18 });
+}
+
+/* 捡钱时在世界坐标上飘一个「+N」。纯本地，不进快照——
+   它是反馈不是状态，让房主替客机算这个纯属浪费带宽。 */
+const floaters = [];
+function cashFloat(x, y, v){
+  for (const f of floaters){
+    if (f.life > .55 && Math.hypot(f.x-x, f.y-y) < 44){ f.v += v; f.pop = .16; return; }
+  }
+  if (floaters.length > 24) floaters.shift();
+  floaters.push({ x, y, v, life:.85, pop:.16 });
+}
+
+
+/* ---------- 波间商店 ----------
+   开在两波之间那 3 秒空白上：那段时间本来什么都没有，正好放一个决策点。
+   只卖消耗品。单人时它会一直等你（点「开打」才继续），
+   联机时不卡住对方——波间延长到 9 秒，两个人各买各的，时间到就开打。 */
+const SHOP_HEAL = 35, SHOP_HEAL_COST = 40;
+const SHOP_ULT_COST = 120, SHOP_ULT_MAX = 2;
+const SHOP_REST_SOLO = 3, SHOP_REST_NET = 9;
+// 弹药包的量跟地上捡的补给一致（give 的一半），价钱按解锁门槛走：
+// 越靠后解锁的枪越贵。一条规则算完九把，调参时只有两个数要动
+function ammoPackAmount(i){ return Math.ceil(WEAPONS[i].give * .5); }
+function ammoPackCost(i){ return 20 + WEAPONS[i].unlock * 2; }
+
+/* 货架。ok 这一位是唯一的成交判据——UI 置灰、结账、联机校验都读它，
+   免得三处各判一遍条件，判漏一处就是「钱扣了东西没到」。 */
+function shopCatalog(p){
+  if (!p) return [];
+  const list = [];
+  for (let i = 0; i < WN; i++){
+    if (!p.unlocked[i] || WEAPONS[i].infinite) continue;
+    list.push({ id:'ammo' + i, kind:'ammo', weapon:i, name:WEAPONS[i].name,
+                sub:'弹药 +' + ammoPackAmount(i), cost:ammoPackCost(i),
+                have:'现有 ' + p.ammo[i], full:false });
+  }
+  list.push({ id:'heal', kind:'heal', weapon:-1, name:'医疗包',
+              sub:'生命 +' + SHOP_HEAL, cost:SHOP_HEAL_COST,
+              have:'现有 ' + Math.ceil(p.hp) + ' HP', full:p.hp >= 100 });
+  list.push({ id:'ult', kind:'ult', weapon:-1, name:'无双充能',
+              sub:'立刻攒满一次', cost:SHOP_ULT_COST,
+              have:'现有 ' + p.ultCharge + ' 次', full:p.ultCharge >= SHOP_ULT_MAX });
+  for (const it of list) it.ok = !it.full && p.cash >= it.cost;
+  return list;
+}
+
+/* 结账。返回 true 才算真的买成了 */
+function buyItem(p, id){
+  if (!p || typeof id !== 'string') return false;
+  const it = shopCatalog(p).find(x => x.id === id);
+  if (!it || !it.ok) return false;
+  p.cash -= it.cost;
+  if (it.kind === 'heal') p.hp = Math.min(100, p.hp + SHOP_HEAL);
+  else if (it.kind === 'ult') p.ultCharge = Math.min(SHOP_ULT_MAX, p.ultCharge + 1);
+  else p.ammo[it.weapon] += ammoPackAmount(it.weapon);
+  return true;
+}
+
+let shopOpen = false, shopWave = 0, shopCountLabel = '', shopCashShown = -1;
+const shopEl = document.getElementById('shop');
+const shopGrid = document.getElementById('shopGrid');
+const shopCashEl = document.getElementById('shopCash');
+const shopFootEl = document.getElementById('shopFoot');
+const btnShopGo = document.getElementById('btnShopGo');
+
+function syncShopDom(){
+  // state 不参与：商店是浮在 play 之上的一层，不是一个「界面」。
+  // 这样联机时它不会把战局暂停掉，单人时也不用为了开商店切状态机
+  const show = shopOpen && state === 'play';
+  if (shopEl) shopEl.classList.toggle('hidden', !show);
+}
+function openShop(){
+  if (shopOpen) return;
+  shopOpen = true;
+  resetSticks();                 // 手指状态清掉，免得从商店回来人还在往一个方向跑
+  shopCountLabel = '';
+  // 客机无权开波，把「开打」收起来，免得点了没反应
+  if (btnShopGo) btnShopGo.classList.toggle('hidden', netMode === 'guest');
+  renderShop();
+  syncShopDom();
+}
+function closeShop(){
+  if (!shopOpen) return;
+  shopOpen = false;
+  syncShopDom();
+}
+function renderShop(){
+  if (!shopGrid || !player) return;
+  shopCashShown = player.cash;
+  if (shopCashEl) shopCashEl.textContent = player.cash;
+  const items = shopCatalog(player);
+  shopGrid.innerHTML = items.map(it =>
+    '<button class="shop-item' + (it.full ? ' full' : (it.ok ? '' : ' poor')) + '"' +
+    ' data-id="' + it.id + '"' + (it.ok ? '' : ' disabled') + '>' +
+    '<b>' + it.name + '</b><i>' + it.sub + '</i>' +
+    '<u>' + it.have + '</u>' +
+    '<em>' + (it.full ? '已满' : it.cost) + '</em></button>').join('');
+}
+function shopFootTick(){
+  if (!shopOpen || !shopFootEl) return;
+  // 单人时商店一直等你，所以不显示倒计时；联机不能卡住对方，显示还剩几秒
+  const label = multiplayerActive()
+    ? '下一波 ' + Math.max(0, Math.ceil(waveRest)) + ' 秒'
+    : '买完点「开打」';
+  if (label !== shopCountLabel){ shopCountLabel = label; shopFootEl.textContent = label; }
+}
+/* 每帧检查该不该开/关商店。房主和客机走的是不同的更新函数，
+   所以这一份判断两边都要调——客机的 wave / spawnQueue 来自快照，同样准 */
+function tickShop(){
+  const clear = spawnQueue <= 0 && devilQueue <= 0 &&
+                zombies.length === 0 && devils.length === 0 && bosses.length === 0;
+  if (!clear){ closeShop(); return false; }
+  // shopWave 记的是「已经为哪一波开过商店」，所以只在真正开的时候写。
+  // 别在上面那个分支里也写一遍——那样每波打到一半就把标记刷成当前波，
+  // 等清场时 shopWave 已经等于 wave，商店永远不会弹
+  if (wave > 0 && shopWave !== wave){ shopWave = wave; openShop(); }
+  // 波清了金币还可能在飞过来，钱包一变就重排一次货架（十来个按钮，只在波间跑）
+  if (shopOpen && player && player.cash !== shopCashShown) renderShop();
+  shopFootTick();
+  return true;
+}
+function tickFloaters(dt){
+  for (let i = floaters.length-1; i >= 0; i--){
+    const f = floaters[i];
+    f.life -= dt;
+    if (f.pop > 0) f.pop -= dt;
+    f.y -= dt * 26;
+    if (f.life <= 0) floaters.splice(i, 1);
+  }
+}
+function requestBuy(id){
+  if (!player || !shopOpen) return;
+  if (netMode === 'guest'){
+    // 客机把请求塞进输入里让房主权威结账；本地先乐观扣一次，下一份快照会纠正
+    localBuySeq++; localBuyId = id;
+  }
+  if (buyItem(player, id)){ sfx('buy'); renderShop(); }
+  else sfx('nope');
+}
+if (shopGrid) shopGrid.addEventListener('click', e => {
+  const btn = e.target && e.target.closest ? e.target.closest('.shop-item') : null;
+  if (btn && btn.dataset.id) requestBuy(btn.dataset.id);
+});
+if (btnShopGo) btnShopGo.onclick = () => {
+  if (netMode === 'guest') return;     // 客机无权开波，按钮那边已经藏起来了
+  waveRest = 0;                        // 下一帧 update 就会 startWave
+  closeShop();
+  sfx('click');
+};
+
 function killReward(x, y, baseScore, ownerId){
   kills++; streak++; comboTimer = 9; updateMulti();
   score += baseScore * multiplier;
+  dropCoin(x, y, coinValue(baseScore), ownerId);
   // 大招充能：用掉之后每击杀 50 个重新就绪
   const killer = players.get(ownerId);
   if (killer && killer.ultCharge <= 0){
@@ -1375,7 +1569,7 @@ function collectLocalInput(dt){
       ax:player ? player.fx : 1, ay:player ? player.fy : 0,
       fire:false,
       weapon:localDesiredWeapon ?? (player ? player.weapon : 0),
-      ultSeq:localUltSeq
+      ultSeq:localUltSeq, buySeq:localBuySeq, buy:localBuyId
     };
   }
   let mx = 0, my = 0;
@@ -1419,7 +1613,8 @@ function collectLocalInput(dt){
   // 自动瞄准放在最后：上面各模式先给出「玩家的意图方向」，这里再修正或接管
   [ax, ay] = applyAimAssist(player, ax, ay, dt);
   return { seq:++localInputSeq, mx, my, ax, ay, fire:firing,
-    weapon:localDesiredWeapon ?? player.weapon, ultSeq:localUltSeq };
+    weapon:localDesiredWeapon ?? player.weapon,
+    ultSeq:localUltSeq, buySeq:localBuySeq, buy:localBuyId };
 }
 
 function updatePlayerFromInput(p, input, dt, now){
@@ -1429,6 +1624,13 @@ function updatePlayerFromInput(p, input, dt, now){
   const ultSeq = Number(data.ultSeq) || 0;
   const shouldActivateUlt = ultSeq > p.lastUltSeq;
   if (shouldActivateUlt) p.lastUltSeq = ultSeq;
+  // 客机的购买请求：只认序号递增的那一次，重发的输入不会重复扣钱。
+  // buyItem 自己会校验解锁、余额、是否已满，所以这里不需要再信任对面发来的任何东西
+  const buySeq = Number(data.buySeq) || 0;
+  if (buySeq > (p.lastBuySeq || 0)){
+    p.lastBuySeq = buySeq;
+    if (typeof data.buy === 'string' && data.buy.length <= 12) buyItem(p, data.buy);
+  }
   if (p.alive === false || p.hp <= 0) return;
   let mx = Number(data.mx) || 0, my = Number(data.my) || 0;
   const ml = Math.hypot(mx, my);
@@ -1503,9 +1705,15 @@ function update(dt, now){
     if (decayTimer >= .5){ decayTimer = 0; streak--; multiplier = Math.min(99, 1+Math.floor(streak/2)); }
   }
 
-  if (spawnQueue <= 0 && devilQueue <= 0 && zombies.length === 0 && devils.length === 0 && bosses.length === 0){
-    waveRest -= dt;
-    if (waveRest <= 0){ startWave(); waveRest = 3; }
+  tickFloaters(dt);
+  if (tickShop()){
+    // 单人时商店一直等玩家，倒计时冻住；联机不能卡住对方，照常走
+    if (!(shopOpen && netMode === 'solo')) waveRest -= dt;
+    if (waveRest <= 0){
+      closeShop();
+      startWave();
+      waveRest = multiplayerActive() ? SHOP_REST_NET : SHOP_REST_SOLO;
+    }
   } else {
     spawnTimer -= dt;
     if (spawnTimer <= 0 && zombies.length + devils.length < 42){
@@ -1943,6 +2151,37 @@ function update(dt, now){
     }
   }
 
+  // ----- 金币 -----
+  // 掉出来先散一下，然后被 100px 内最近的活人吸走。阻尼按 dt 走指数，
+  // 不用「每帧乘 0.92」那种写法——那个在 30fps 和 120fps 上手感完全不同
+  const coinDamp = Math.exp(-3.2 * dt);
+  for (let i = coins.length-1; i >= 0; i--){
+    const c = coins[i];
+    c.age += dt; c.life -= dt;
+    if (c.pop > 0) c.pop -= dt;
+    if (c.life <= 0){ coins.splice(i, 1); continue; }
+    const info = nearestLivingPlayer(c);
+    if (info){
+      const t = info.player, d = info.distance || 1;
+      if (d < t.r + 10){
+        t.cash += c.v;
+        if (t === player){ cashFloat(c.x, c.y, c.v); sfx('coin'); }
+        coins.splice(i, 1); continue;
+      }
+      // 吸附半径随金币变旧而变大（100 → 300）。
+      // 不这么做的话，风筝流玩家会把一地钱扔在身后自己蒸发掉，
+      // 「钱是怎么来的」就变成一件说不清的事，货币系统当场失去意义
+      const reach = COIN_MAGNET * (1 + (1 - c.life/COIN_LIFE) * 2);
+      if (d < reach){
+        const pull = 260 + 900 * Math.max(0, 1 - d/reach);
+        c.vx += (t.x-c.x)/d * pull * dt;
+        c.vy += (t.y-c.y)/d * pull * dt;
+      }
+    }
+    c.vx *= coinDamp; c.vy *= coinDamp;
+    c.x += c.vx*dt; c.y += c.vy*dt;
+  }
+
   // ----- 粒子 -----
   const pcap = isPhone() ? 400 : 800;                                       // 软上限，防连环爆炸粒子暴涨卡顿（手机更低）
   if (particles.length > pcap) particles.splice(0, particles.length - pcap);
@@ -2004,6 +2243,7 @@ function buildNetworkState(){
     barrels:barrels.map(copyScalars),
     fireballs:fireballs.map(copyScalars),
     pickups:pickups.map(copyScalars),
+    coins:coins.map(copyScalars),
     hazards:hazards.map(copyScalars),
     banners:banners.map(copyScalars)
   };
@@ -2067,6 +2307,7 @@ function applyNetworkState(snapshot){
     p.x = networkNumber(raw.x, p.x, -500, WW+500);
     p.y = networkNumber(raw.y, p.y, -500, WH+500);
     p.hp = networkNumber(raw.hp, p.hp, 0, 100);
+    p.cash = networkNumber(raw.cash, 0, 0, 1e9);
     p.alive = raw.alive !== false && p.hp > 0;
     p.ammo = WEAPONS.map((weapon,w) => {
       const amount = Array.isArray(raw.ammo) ? raw.ammo[w] : undefined;
@@ -2093,6 +2334,10 @@ function applyNetworkState(snapshot){
       if (localTarget) player.target = localTarget;
     } else {
       player.target = null;
+    }
+    if (previousLocal && Number.isFinite(previousLocal.cash) && player.cash > previousLocal.cash){
+      cashFloat(player.x, player.y - 10, player.cash - previousLocal.cash);
+      sfx('coin');
     }
     if (previousLocal && previousLocal.alive !== false && player.alive !== false){
       if (player.hp < previousLocal.hp){
@@ -2129,6 +2374,7 @@ function applyNetworkState(snapshot){
   });
   bullets = array('bullets', 800); grenades = array('grenades', 80); rockets = array('rockets', 80);
   barrels = array('barrels', 100); fireballs = array('fireballs', 500); pickups = array('pickups', 120);
+  coins = array('coins', 200);
   hazards = array('hazards', 300).map(h => {
     h.r = networkNumber(h.r, 0, 0, 500);
     h.warn = networkNumber(h.warn, 0, 0, .85);
@@ -2171,6 +2417,8 @@ function applyNetworkState(snapshot){
 function updateGuest(dt, now){
   time += dt; frameN++;
   if (!player) return;
+  tickFloaters(dt);
+  tickShop();
   const input = collectLocalInput(dt);
   // 只做本机移动预测；伤害、射击、拾取等必须等待房主快照。
   if (player.alive !== false){
@@ -2624,6 +2872,39 @@ function drawPillar(c, p){
 }
 
 /* ---- 拾取物：橙色立方箱 / 白色医疗箱 ---- */
+// 金币：一枚会转的小圆片。用椭圆宽度做转动，不另开一张贴图
+function drawCoin(c, k){
+  const bob = Math.sin(time*5 + k.x*.06)*2;
+  if (k.life < 3 && Math.floor(time*6)%2) return;      // 快消失了就闪，提示该去捡
+  const x = k.x, y = k.y + bob;
+  const spin = Math.abs(Math.cos(time*3.4 + k.x*.05));
+  const w = Math.max(1.6, 7 * spin) * (1 + (k.pop > 0 ? k.pop*1.6 : 0));
+  shadow(c, x, k.y + 6, 6);
+  c.save();
+  c.strokeStyle = OUT; c.lineWidth = 1.4;
+  c.beginPath(); c.ellipse(x, y, w, 7, 0, 0, 7);
+  c.fillStyle = '#e8a91e'; c.fill(); c.stroke();
+  if (w > 3.2){
+    c.beginPath(); c.ellipse(x, y, w*.55, 4.2, 0, 0, 7);
+    c.fillStyle = '#ffd75e'; c.fill();
+  }
+  c.restore();
+}
+// 捡钱的「+N」。纯本地反馈，不进快照
+function drawFloaters(c){
+  c.textAlign = 'center';
+  c.lineJoin = 'round';
+  for (const f of floaters){
+    const a = Math.min(1, f.life / .35);
+    c.globalAlpha = a;
+    c.font = '900 ' + Math.round(15 + (f.pop > 0 ? f.pop*26 : 0)) + 'px sans-serif';
+    c.lineWidth = 4; c.strokeStyle = '#23211d';
+    c.strokeText('+' + f.v, f.x, f.y);
+    c.fillStyle = '#ffd75e';
+    c.fillText('+' + f.v, f.x, f.y);
+  }
+  c.globalAlpha = 1;
+}
 function drawPickup(c, p){
   const bob = Math.sin(time*4 + p.x)*2.5;
   if (p.life < 3 && Math.floor(time*6)%2) return;
@@ -2713,6 +2994,12 @@ function drawHUD(){
   ctx.strokeText('击杀 ' + kills, VW-18, 60);
   ctx.fillStyle = '#f7f4ea';
   ctx.fillText('击杀 ' + kills, VW-18, 60);
+  // 钱包。刚进账时放大一下，不然一个静止的数字很容易被无视
+  const cashPop = floaters.length ? Math.max(0, floaters[floaters.length-1].life - .55) : 0;
+  ctx.font = 'bold ' + Math.round(17 + cashPop*22) + 'px sans-serif';
+  ctx.strokeText('金币 ' + (player.cash|0), VW-18, 84);
+  ctx.fillStyle = '#ffd75e';
+  ctx.fillText('金币 ' + (player.cash|0), VW-18, 84);
   if (multiplayerActive()){
     ctx.textAlign = 'left';
     let py = 56;
@@ -2824,7 +3111,9 @@ function drawHUD(){
     }
     ctx.globalAlpha = 1;
   }
-  if (spawnQueue<=0 && devilQueue<=0 && zombies.length===0 && devils.length===0 && bosses.length===0 && wave>0){
+  // 商店开着时不画倒计时：单人时它是冻住的，画出来就是个不会动的数字
+  if (!shopOpen && spawnQueue<=0 && devilQueue<=0 &&
+      zombies.length===0 && devils.length===0 && bosses.length===0 && wave>0){
     ctx.font = 'bold 18px sans-serif'; ctx.lineWidth = 4; ctx.strokeStyle = '#23211d';
     ctx.strokeText('下一波 ' + Math.ceil(waveRest) + ' 秒…', VW/2, 70);
     ctx.fillStyle = '#f7f4ea';
@@ -2857,8 +3146,9 @@ function render(){
   }
   ctx.globalAlpha = 1;
 
-  // 平面层：拾取物
+  // 平面层：拾取物 + 金币
   for (const p of pickups) drawPickup(ctx, p);
+  for (const k of coins) drawCoin(ctx, k);
   // 手雷 / 火箭 / 火球
   for (const g of grenades){
     ctx.fillStyle = Math.floor(time*10)%2 ? '#3a5e2a' : '#4e7a38';
@@ -3040,6 +3330,7 @@ function render(){
       ctx.fillRect(px-bw/2, py+5, bw*Math.max(0,p.hp)/100, bh);
     }
   }
+  drawFloaters(ctx);     // 「+N」跟着世界坐标走，所以要在镜头变换里画
   ctx.restore();
 
   // 低血量红晕
@@ -3254,6 +3545,7 @@ function setScreen(s){
   ghostR.classList.toggle('on', touchPlay);
   document.getElementById('netHud').classList.toggle('hidden', !(playing && multiplayerActive()));
   if (!playing){ resetSticks(); hideTouchGuide(); }   // 离开战斗时清掉摇杆，防止手指状态卡住
+  syncShopDom();                                      // 暂停/结算时把商店收起来，回来再放出去
   if (touchPlay){ refreshSwapBtn(); layoutTouchUI(); }
   if (s === 'over') refreshOverRank();
   cvs.style.cursor = (playing && controlMode === 'mouse') ? 'none' : 'default';

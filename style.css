@@ -119,6 +119,52 @@
   #ultBtn[data-s="active"] { background:rgba(255,179,62,.95); border-color:#fff; color:#2a0707; }
   #ultBtn[data-s="charge"] { opacity:.82; }
   @keyframes ultPulse { 50% { box-shadow:0 3px 0 #000, 0 0 22px rgba(224,60,49,.6); } }
+  /* ---------- 波间商店 ----------
+     z-index 夹在触屏 UI（5/6/8）和 .screen（10）之间：盖得住摇杆，盖不住暂停页。
+     整层吃触摸，所以打开时手指落哪儿都不会误生成摇杆（配合 JS 的 onUiElement）。 */
+  #shop { position:fixed; inset:0; z-index:9; display:flex; align-items:center;
+    justify-content:center; background:rgba(8,10,13,.78);
+    padding: max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right))
+             max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left)); }
+  /* 只让货架滚，钱包和「开打」钉住。
+     横屏（812×375 这种）时整块面板比屏幕高，要是整块一起滚，「开打」就掉到屏幕外面去了——
+     而它是这个界面唯一的出口，找不到等于卡死。 */
+  .shop-box { width:min(560px,96vw); max-height:88dvh; display:flex; flex-direction:column;
+    overflow:hidden;
+    background:#15130f; border:3px solid #4a4438; box-shadow:0 6px 0 #000;
+    padding:14px 14px 12px; color:#d8d2c2; }
+  .shop-head, .shop-foot, .shop-note { flex:0 0 auto; }
+  .shop-head { display:flex; align-items:baseline; justify-content:space-between;
+    gap:10px; margin-bottom:10px; }
+  .shop-title { font-size:min(5vw,19px); font-weight:900; letter-spacing:.22em; color:#f2efe4; }
+  .shop-wallet { font-size:min(4vw,15px); letter-spacing:.1em; color:#9c947f; }
+  .shop-wallet b { color:#ffd75e; font-size:1.3em; margin-left:3px; }
+  .shop-grid { display:grid; gap:7px; flex:1 1 auto; min-height:0; overflow-y:auto;
+    grid-template-columns:repeat(auto-fill, minmax(104px, 1fr));
+    align-content:start; }
+  .shop-item { display:flex; flex-direction:column; gap:1px; align-items:flex-start;
+    padding:8px 9px 7px; text-align:left; cursor:pointer;
+    background:#1d2126; border:2px solid #3a4048; box-shadow:0 3px 0 #000;
+    color:#f2efe4; font:inherit; transition:transform .05s; }
+  .shop-item:active { transform:translateY(3px); box-shadow:0 0 0 #000; }
+  .shop-item b { font-size:14px; font-weight:800; letter-spacing:.06em; }
+  .shop-item i { font-style:normal; font-size:11.5px; color:#8fd0a0; }
+  .shop-item u { text-decoration:none; font-size:10.5px; color:#7d7665; }
+  .shop-item em { font-style:normal; margin-top:3px; font-size:14px; font-weight:900;
+    color:#ffd75e; letter-spacing:.04em; }
+  .shop-item em::before { content:"💰 "; font-size:.85em; }
+  /* 买不起：整块压暗，但价钱仍然看得清——要让人知道「还差多少」 */
+  .shop-item.poor { opacity:.5; cursor:default; }
+  .shop-item.poor:active { transform:none; box-shadow:0 3px 0 #000; }
+  .shop-item.full { opacity:.42; cursor:default; }
+  .shop-item.full em { color:#7d7665; }
+  .shop-item.full em::before { content:""; }
+  .shop-foot { display:flex; align-items:center; justify-content:space-between;
+    gap:10px; margin-top:12px; }
+  .shop-foot #shopFoot { font-size:12.5px; letter-spacing:.08em; color:#9c947f; }
+  .shop-foot .btn { margin-top:0; padding:11px 30px; font-size:min(4.6vw,18px); }
+  .shop-note { margin-top:9px; font-size:11px; letter-spacing:.06em; color:#6b665a; }
+
   /* ---------- 手机竖屏提示：只是一条可关掉的横幅，绝不挡玩 ---------- */
   #rotate { position:fixed; z-index:40; left:50%; transform:translateX(-50%);
     top:calc(env(safe-area-inset-top) + 8px); max-width:min(92vw,420px);
