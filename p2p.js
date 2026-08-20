@@ -633,9 +633,13 @@
   global.ZombiePeerNetwork = ZombiePeerNetwork;
   global.zombiePeerCodec = { packCode, unpackCode };   // 给测试用
 
-  // 线上唯一能用的联机形态就是热点直连，所以 net 直接指向它。
-  // WSS 版整套保留在 multiplayer.js（window.ZombieNetwork / window.zombieWsNetwork），
-  // 哪天真有了公网服务器，把下面这行换回去即可。
-  global.zombieWsNetwork = global.zombieNetwork;
-  global.zombieNetwork = new ZombiePeerNetwork();
+  /* 2026-08-20：有服务器了，主路径换回 WSS。
+     房间服务器跑在 tiaozhuxiansheng.com 上（见 server/deploy/README.md），
+     所以 window.zombieNetwork 保持 multiplayer.js 装好的那个实例不动。
+
+     局域网直连整套原样留在这里，导出成 window.zombiePeerNetwork：
+     它不需要任何服务器，但传输层至今没有真机结论（mDNS / 网卡路由那一摊，见 README）。
+     要切回去只改这一行：global.zombieNetwork = new ZombiePeerNetwork();
+     注意 script.js 里的 net 是在加载时一次性取的，运行时切换需要额外做一层门面。 */
+  global.zombiePeerNetwork = new ZombiePeerNetwork();
 })(window);

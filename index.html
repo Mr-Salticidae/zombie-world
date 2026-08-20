@@ -64,7 +64,7 @@
   </div>
   <div style="height:20px"></div>
   <button class="btn" id="btnStart">▶ 单人游戏</button>
-  <button class="btn online" id="btnOnline">◉ 2 人局域网联机</button>
+  <button class="btn online" id="btnOnline">◉ 多人联机</button>
   <!-- 排行榜依赖 Toy JS SDK，拿不到 SDK 的环境（本地开发、站外托管）保持隐藏，
        不留一个点了没反应的按钮 -->
   <button class="btn minor hidden" id="btnRank">🏆 排行榜</button>
@@ -78,13 +78,13 @@
 </div>
 
 <div id="online" class="screen hidden">
-  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">局域网<span>联机</span></h1>
-  <div class="sub">2 人 · 连同一个 WiFi · 不需要服务器</div>
+  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">多人<span>联机</span></h1>
+  <div class="sub">2~4 人 · 任意网络都能一起玩</div>
   <div class="online-panel">
     <div class="online-howto">
-      <b>两台设备连同一个 WiFi</b>（家里、宿舍、咖啡厅都行）。<br>
-      一个点「我开房」拿 4 位房间号，另一个点「我加入」输进去就连上了。<br>
-      不要用「一台手机开热点」那种连法——真机测下来连不上。
+      一个点「我开房」拿一个 <b>6 位房间码</b>，其他人点「我加入」输进去就同房了。<br>
+      <b>不需要在同一个网络</b>，各在各家也能一起打，最多 4 个人。<br>
+      掉线有 10 秒重连窗口；队友倒下后，队伍撑过这一波他就能复活。
     </div>
     <label class="online-field">
       <span>玩家昵称</span>
@@ -98,34 +98,19 @@
       <button class="btn" id="btnCreateRoom">我开房 · 出邀请码</button>
       <button class="btn minor" id="btnJoinP2P">我加入 · 粘对方的码</button>
     </div>
-    <!-- 4 位房间号：信令服务在线时走这条。服务器只负责把两边的码递一次，
-         递完就退场，游戏数据仍然全程 P2P。连不上就点下面那个按钮回到邀请码。 -->
+    <!-- 6 位房间码：走房间服务器（2~4 人，不要求同一个网络）。
+         码的字母表去掉了 I O 0 1，念出来不会错。 -->
     <div id="roomCodePanel" class="hidden">
       <div id="roomCodeStep" class="signal-step"></div>
       <div id="roomCodeShow" class="hidden">
         <div class="room-code" id="roomCodeBig">····</div>
       </div>
       <div id="roomCodeEnter" class="hidden">
-        <input id="roomCodeInput" class="room-code-input" inputmode="numeric"
-               pattern="[0-9]*" maxlength="4" placeholder="0000" autocomplete="off">
+        <input id="roomCodeInput" class="room-code-input" inputmode="latin" autocapitalize="characters"
+               maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false">
         <button class="btn" id="btnRoomCodeGo">加 入</button>
       </div>
-      <button class="btn minor" id="btnRoomCodeManual">连不上？改用邀请码</button>
       <button class="btn minor" id="btnRoomCodeCancel">取消</button>
-    </div>
-    <div id="signalPanel" class="hidden">
-      <div id="signalStep" class="signal-step"></div>
-      <div id="signalOutWrap" class="signal-block hidden">
-        <span class="signal-label" id="signalOutLabel">我的码 —— 发给对方</span>
-        <textarea id="signalOut" readonly rows="3" placeholder="正在生成…"></textarea>
-        <button class="btn minor" id="btnCopySignal">复制我的码</button>
-      </div>
-      <div id="signalInWrap" class="signal-block hidden">
-        <span class="signal-label" id="signalInLabel">粘贴对方的码</span>
-        <textarea id="signalIn" rows="3" placeholder="把对方发来的一长串粘在这里"></textarea>
-        <button class="btn minor" id="btnApplySignal">确定</button>
-      </div>
-      <button class="btn minor" id="btnSignalCancel">取消</button>
     </div>
     <div id="roomPanel" class="hidden">
       <div id="roomMeta" class="room-meta"></div>

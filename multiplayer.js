@@ -36,7 +36,7 @@
 
      反过来一条同样重要：服务器那边的 ALLOWED_ORIGINS 必须写 https://www.bilibilitoy.com，
      不是 bilibili.com。填错的表现是「连接被拒绝」且客户端看不出原因。见 server/deploy/README.md。 */
-  const SERVER_DEFAULT = "";
+  const SERVER_DEFAULT = "wss://tiaozhuxiansheng.com/zombie/ws";
 
   function defaultServerUrl(){
     if (SERVER_DEFAULT) return SERVER_DEFAULT;
