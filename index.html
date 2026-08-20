@@ -82,7 +82,8 @@
   <div class="sub">2 人 · 连同一个热点 · 不需要服务器</div>
   <div class="online-panel">
     <div class="online-howto">
-      一个人开热点，另一个连上去，然后互发一次「码」就能开局。<br>
+      一个人开热点，另一个连上去。<br>
+      一个点「我开房」拿 4 位房间号，另一个点「我加入」输进去就连上了。<br>
       开热点那位要开着自己的流量，不然游戏页面都打不开。
     </div>
     <label class="online-field">
@@ -96,6 +97,21 @@
     <div id="onlineJoin" class="online-actions">
       <button class="btn" id="btnCreateRoom">我开房 · 出邀请码</button>
       <button class="btn minor" id="btnJoinP2P">我加入 · 粘对方的码</button>
+    </div>
+    <!-- 4 位房间号：信令服务在线时走这条。服务器只负责把两边的码递一次，
+         递完就退场，游戏数据仍然全程 P2P。连不上就点下面那个按钮回到邀请码。 -->
+    <div id="roomCodePanel" class="hidden">
+      <div id="roomCodeStep" class="signal-step"></div>
+      <div id="roomCodeShow" class="hidden">
+        <div class="room-code" id="roomCodeBig">····</div>
+      </div>
+      <div id="roomCodeEnter" class="hidden">
+        <input id="roomCodeInput" class="room-code-input" inputmode="numeric"
+               pattern="[0-9]*" maxlength="4" placeholder="0000" autocomplete="off">
+        <button class="btn" id="btnRoomCodeGo">加 入</button>
+      </div>
+      <button class="btn minor" id="btnRoomCodeManual">连不上？改用邀请码</button>
+      <button class="btn minor" id="btnRoomCodeCancel">取消</button>
     </div>
     <div id="signalPanel" class="hidden">
       <div id="signalStep" class="signal-step"></div>

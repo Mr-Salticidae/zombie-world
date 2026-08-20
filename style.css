@@ -284,6 +284,18 @@
   .online-footer .btn { margin-top:14px; }
 
   /* ---------- 局内网络状态 ---------- */
+  /* ---------- 4 位房间号 ---------- */
+  .room-code { margin:10px 0 4px; font:900 min(16vw,56px)/1.1 ui-monospace,Menlo,Consolas,monospace;
+    letter-spacing:.28em; text-indent:.28em; color:#ffd75e;
+    text-shadow:0 3px 0 #2a0707, 0 0 24px rgba(255,215,94,.32); }
+  .room-code-input { width:min(240px,72vw); padding:12px 10px; text-align:center;
+    font:900 min(11vw,36px)/1 ui-monospace,Menlo,Consolas,monospace; letter-spacing:.26em;
+    text-indent:.26em; color:#f2efe4; background:#0f1114; border:3px solid #57503f; }
+  .room-code-input:focus { outline:none; border-color:#ffb33e; }
+  #roomCodeEnter { display:flex; flex-direction:column; align-items:center; gap:12px; }
+  #roomCodePanel { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  #roomCodePanel .btn { margin-top:6px; }
+
   #netHud { position:fixed; left:max(12px,env(safe-area-inset-left)); top:max(10px,env(safe-area-inset-top));
     z-index:7; display:flex; align-items:center; gap:8px; padding:7px 9px;
     border:1px solid rgba(145,188,201,.45); border-radius:4px;

@@ -1,0 +1,21 @@
+name = "zombie-signal"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# 免费层的 Durable Object 必须是 SQLite-backed（new_sqlite_classes，不是 new_classes），
+# 用错了部署会报「Durable Objects require a paid plan」。
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room", "Limiter"]
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[durable_objects.bindings]]
+name = "LIMIT"
+class_name = "Limiter"
+
+# 不开 observability 的话免费层看不到日志，排查真机问题会很难受
+[observability]
+enabled = true

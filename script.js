@@ -3674,6 +3674,12 @@ const onlineConsent = document.getElementById('onlineConsent');
 const btnCreateRoom = document.getElementById('btnCreateRoom');
 const btnJoinP2P = document.getElementById('btnJoinP2P');
 const onlineJoin = document.getElementById('onlineJoin');
+const roomCodePanel = document.getElementById('roomCodePanel');
+const roomCodeStepText = document.getElementById('roomCodeStep');
+const roomCodeShow = document.getElementById('roomCodeShow');
+const roomCodeBig = document.getElementById('roomCodeBig');
+const roomCodeEnter = document.getElementById('roomCodeEnter');
+const roomCodeInput = document.getElementById('roomCodeInput');
 const signalPanel = document.getElementById('signalPanel');
 const signalStepText = document.getElementById('signalStep');
 const signalOutWrap = document.getElementById('signalOutWrap');
@@ -3716,11 +3722,35 @@ function setRoomRequestBusy(busy){
      guest-in  客机先粘房主的邀请码
      guest-out 客机产出应答码，发回去等房主粘贴
    连上以后（房里有 2 个人）这一整块就收起来，换成正常的房间面板。 */
+/* ---------- 4 位房间号 ----------
+   信令服务在线时走这条：房主拿一个 4 位号，客机输进去就连上，中间不用互发任何东西。
+   服务器只把两边的码递一次，游戏数据仍然全程 P2P。
+   signalOnline 是打开联机页时探出来的——探不通不算故障，只是今天这条路用不了，
+   界面直接退回邀请码那一套，玩家不该因为一个可选服务挂了就玩不了。 */
+let signalOnline = false, roomStage = '';
+function setRoomStage(stage){
+  roomStage = stage;
+  roomCodePanel.classList.toggle('hidden', !stage);
+  roomCodeShow.classList.toggle('hidden', stage !== 'host');
+  roomCodeEnter.classList.toggle('hidden', stage !== 'guest');
+  onlineJoin.classList.toggle('hidden', !!stage || !!signalStage || !!net.room);
+  if (stage === 'host'){
+    roomCodeStepText.textContent = '把这 4 个数字告诉队友，让他在「我加入」里输进去';
+  } else if (stage === 'guest'){
+    roomCodeStepText.textContent = '输入房主给你的 4 位房间号';
+    roomCodeInput.value = '';
+    setTimeout(() => { try { roomCodeInput.focus(); } catch (_) {} }, 30);
+  } else {
+    roomCodeBig.textContent = '····';
+  }
+}
+
 let signalStage = '';
 function setSignalStage(stage){
   signalStage = stage;
   signalPanel.classList.toggle('hidden', !stage);
-  onlineJoin.classList.toggle('hidden', !!stage || !!net.room);
+  if (stage) setRoomStage('');
+  onlineJoin.classList.toggle('hidden', !!stage || !!roomStage || !!net.room);
   signalOutWrap.classList.toggle('hidden', stage !== 'host' && stage !== 'guest-out');
   signalInWrap.classList.toggle('hidden', stage !== 'host' && stage !== 'guest-in');
   if (stage === 'host'){
@@ -3777,8 +3807,11 @@ function onlineConsentGranted(){
 function renderRoom(){
   const room = net.room;
   // 人齐了就把信令那一块收起来，码已经没用了
-  if (room && room.players.length >= 2 && signalStage) setSignalStage('');
-  onlineJoin.classList.toggle('hidden', !!room || !!signalStage);
+  if (room && room.players.length >= 2){
+    if (signalStage) setSignalStage('');
+    if (roomStage) setRoomStage('');
+  }
+  onlineJoin.classList.toggle('hidden', !!room || !!signalStage || !!roomStage);
   roomPanel.classList.toggle('hidden', !room);
   if (!room) return;
   const capacity = room.capacity || 2;
@@ -3870,15 +3903,35 @@ btnOnline.onclick = () => {
   setScreen('online');
   renderRoom();
   sfx('click');
+  // 探一次信令服务，决定「我开房」是给 4 位房间号还是给邀请码。
+  // 探不通不打断任何事，界面就停在邀请码那一套上
+  if (typeof net.probeSignal === 'function'){
+    net.probeSignal().then(ok => {
+      signalOnline = !!ok;
+      if (!ok && net.signalReady && net.signalReady())
+        setOnlineStatus('联网加入暂时用不了，这一局请用邀请码。', 'error');
+    }).catch(() => { signalOnline = false; });
+  }
 };
-btnCreateRoom.onclick = async () => {
-  if (roomRequestBusy) return;
-  if (!onlineConsentGranted()) return;
-  audioInit();
+async function hostWithRoomCode(){
+  setRoomRequestBusy(true);
+  setRoomStage('host');
+  roomCodeBig.textContent = '····';
+  setOnlineStatus('正在开房…');
+  try {
+    await net.createRoomOnline(currentName());
+  } catch (error){
+    setRoomStage('');
+    hostWithInviteCode(error.message || '开房失败，改用邀请码');
+  } finally {
+    setRoomRequestBusy(false);
+  }
+}
+async function hostWithInviteCode(why){
   setRoomRequestBusy(true);
   setSignalStage('host');
   signalOut.value = '';
-  setOnlineStatus('正在生成邀请码…');
+  setOnlineStatus(why ? why + '——改用邀请码。' : '正在生成邀请码…', why ? 'error' : '');
   try {
     await net.createRoom(currentName(), 2);
   } catch (error){
@@ -3887,13 +3940,60 @@ btnCreateRoom.onclick = async () => {
   } finally {
     setRoomRequestBusy(false);
   }
+}
+btnCreateRoom.onclick = () => {
+  if (roomRequestBusy) return;
+  if (!onlineConsentGranted()) return;
+  audioInit();
+  if (signalOnline) hostWithRoomCode(); else hostWithInviteCode();
 };
 btnJoinP2P.onclick = () => {
   if (roomRequestBusy) return;
   if (!onlineConsentGranted()) return;
   audioInit();
-  setSignalStage('guest-in');
-  setOnlineStatus('把房主发来的邀请码粘进来。');
+  if (signalOnline){
+    setRoomStage('guest');
+    setOnlineStatus('输入房主给你的 4 位房间号。');
+  } else {
+    setSignalStage('guest-in');
+    setOnlineStatus('把房主发来的邀请码粘进来。');
+  }
+};
+// 只留数字，别让人输进字母又困惑为什么加不进去
+roomCodeInput.addEventListener('input', () => {
+  const clean = roomCodeInput.value.replace(/\D/g, '').slice(0, 4);
+  if (clean !== roomCodeInput.value) roomCodeInput.value = clean;
+});
+roomCodeInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnRoomCodeGo.click(); });
+const btnRoomCodeGo = document.getElementById('btnRoomCodeGo');
+btnRoomCodeGo.onclick = async () => {
+  if (roomRequestBusy) return;
+  const code = roomCodeInput.value.replace(/\D/g, '');
+  if (code.length !== 4){ setOnlineStatus('房间号是 4 位数字。', 'error'); return; }
+  setRoomRequestBusy(true);
+  setOnlineStatus('正在加入 ' + code + '…');
+  try {
+    await net.joinWithRoomCode(code, currentName());
+    setOnlineStatus('已连上房主，等他开局。', 'ok');
+  } catch (error){
+    setOnlineStatus(error.message || '加入失败', 'error');
+  } finally {
+    setRoomRequestBusy(false);
+  }
+};
+document.getElementById('btnRoomCodeManual').onclick = () => {
+  const wasHost = roomStage === 'host';
+  setRoomStage('');
+  net.disconnect(true);
+  renderRoom();
+  if (wasHost) hostWithInviteCode();
+  else { setSignalStage('guest-in'); setOnlineStatus('把房主发来的邀请码粘进来。'); }
+};
+document.getElementById('btnRoomCodeCancel').onclick = () => {
+  setRoomStage('');
+  net.disconnect(true);
+  setOnlineStatus('已取消。');
+  renderRoom();
 };
 document.getElementById('btnApplySignal').onclick = async () => {
   const text = signalIn.value.trim();
@@ -3927,10 +4027,30 @@ document.getElementById('btnSignalCancel').onclick = () => {
   setOnlineStatus('已取消。');
   renderRoom();
 };
-// 码生成好了才由 p2p.js 抛出来——候选收集要等一会儿，不是点完按钮立刻就有
+// 码生成好了才由 p2p.js 抛出来——候选收集要等一会儿，不是点完按钮立刻就有。
+// 走房间号那条路时，底下同样会生成邀请码（只是由信令服务代为传递），
+// 所以这里要按当前在哪条路上分开处理，别把「复制发给对方」的提示喊到房间号界面上。
 net.addEventListener('signal', event => {
+  const kind = event.detail.kind;
+  if (kind === 'room'){
+    roomCodeBig.textContent = event.detail.roomCode;
+    setOnlineStatus('房间号 ' + event.detail.roomCode + ' —— 告诉队友，他输进去就能进来。', 'ok');
+    return;
+  }
+  if (kind === 'room.joined'){
+    setRoomStage('');
+    return;
+  }
+  if (kind === 'room.timeout'){
+    setRoomStage('');
+    setOnlineStatus('等了一分半没人加入，房间号已作废。重新点「我开房」拿一个新的。', 'error');
+    net.disconnect(true);
+    renderRoom();
+    return;
+  }
   signalOut.value = event.detail.code;
-  setOnlineStatus(event.detail.kind === 'offer'
+  if (!signalStage) return;                  // 房间号那条路不需要这两句提示
+  setOnlineStatus(kind === 'offer'
     ? '邀请码好了，复制发给对方，然后等他回你应答码。'
     : '应答码好了，复制发回给房主。', 'ok');
 });

@@ -25,6 +25,40 @@
   const HELLO_TIMEOUT_MS  = 8000;   // 通道开了但对方迟迟不报到
   const PING_INTERVAL_MS  = 2000;
 
+  /* ---------- 信令服务（可选）----------
+     它只做一件事：把房主的码递给客机、把客机的码递回房主，然后消失。
+     游戏数据仍然全程 P2P，一个字节都不经过它。递的就是下面 packCode 出来的那串码本身——
+     服务器当它是一坨不透明的字符串，所以编解码这块一行都不用改。
+
+     地址故意做成可换的：workers.dev 在国内能不能稳定连上没人验证过，
+     万一不通就换个地址，服务端几十行、迁移很便宜。
+       · SIGNAL_DEFAULT   随包发布的默认地址，留空 = 这条路关掉
+       · localStorage 里的 zombie-world-signal 覆盖它（真机排查/临时换地址用）
+     任何一步失败都不该把玩家困住：所有失败路径最终都回落到复制粘贴那一套。 */
+  const SIGNAL_DEFAULT = "";
+  const SIGNAL_KEY = "zombie-world-signal";
+  const SIGNAL_POLL_MS = 1000;      // 房主轮询应答的间隔
+  const SIGNAL_WAIT_MS = 90000;     // 等队友的上限，比服务端 2 分钟的房间寿命短一点
+  const SIGNAL_HTTP_MS = 8000;      // 单次请求超时：WebView 里卡住的请求不会自己醒
+
+  function signalBase(){
+    let v = SIGNAL_DEFAULT;
+    try {
+      const saved = global.localStorage && global.localStorage.getItem(SIGNAL_KEY);
+      if (saved !== null && saved !== undefined) v = saved;
+    } catch (_) {}
+    return String(v || "").trim().replace(/\/+$/, "");
+  }
+
+  async function signalFetch(url, options){
+    if (typeof global.fetch !== "function") throw new Error("这个环境不支持联网加入，请改用邀请码");
+    const ctrl = typeof global.AbortController === "function" ? new global.AbortController() : null;
+    const timer = setTimeout(() => ctrl && ctrl.abort(), SIGNAL_HTTP_MS);
+    try {
+      return await global.fetch(url, Object.assign({ signal: ctrl ? ctrl.signal : undefined }, options));
+    } finally { clearTimeout(timer); }
+  }
+
   function randomId(n){
     const bytes = new Uint8Array(n);
     (global.crypto || global.msCrypto).getRandomValues(bytes);
@@ -132,10 +166,9 @@
       await this.pc.setLocalDescription(await this.pc.createOffer());
       await this.gather();
 
-      this.emit("signal", {
-        kind: "offer",
-        code: await packCode({ v:1, t:"offer", sdp:this.pc.localDescription.sdp, name:this.room.players[0].name })
-      });
+      this.lastCode = await packCode({ v:1, t:"offer", sdp:this.pc.localDescription.sdp,
+                                       name:this.room.players[0].name });
+      this.emit("signal", { kind: "offer", code: this.lastCode });
       this.emitRoomState();
       return this.room;
     }
@@ -165,18 +198,150 @@
       await this.pc.setLocalDescription(await this.pc.createAnswer());
       await this.gather();
 
-      this.emit("signal", {
-        kind: "answer",
-        code: await packCode({ v:1, t:"answer", sdp:this.pc.localDescription.sdp, name:this.myName })
-      });
+      this.lastCode = await packCode({ v:1, t:"answer", sdp:this.pc.localDescription.sdp,
+                                       name:this.myName });
+      this.emit("signal", { kind: "answer", code: this.lastCode });
+    }
+
+
+    /* ---------- 走信令服务的那条路：4 位房间号 ----------
+       这一层只是「把码递过去」的搬运工，底下复用的还是 createRoom / joinWithCode / acceptRemoteCode，
+       一行都没改。所以信令服务挂了、被墙了、审核环境不让访问，把复制粘贴那条路点出来就还能玩。 */
+
+    signalReady(){ return !!signalBase(); }
+
+    // 联机页打开时探一次，用来决定「我开房」是给房间号还是给邀请码。
+    // 探不通不算错误，只是这条路今天用不了
+    async probeSignal(){
+      const base = signalBase();
+      if (!base) return false;
+      try {
+        const res = await signalFetch(base + "/health");
+        return res.ok;
+      } catch (_) { return false; }
+    }
+
+    async signalJson(url, options){
+      const res = await signalFetch(url, options);
+      let body = null;
+      try { body = res.status === 204 ? null : await res.json(); } catch (_) {}
+      return { status: res.status, body: body || {} };
+    }
+
+    // 房主：开房 → 拿 4 位号 → 后台等应答
+    async createRoomOnline(name){
+      const base = signalBase();
+      if (!base) throw new Error("这一版没有配信令服务，请用邀请码");
+      this.useStun = true;
+      const room = await this.createRoom(name);          // 照旧，顺便把码存进 this.lastCode
+      let r;
+      try {
+        r = await this.signalJson(base + "/new", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ offer: this.lastCode, name: room.players[0].name })
+        });
+      } catch (_) { throw new Error("信令服务连不上，请改用邀请码"); }
+      if (r.status === 429) throw new Error("开房太频繁了，等几分钟再试");
+      if (r.status !== 200) throw new Error("信令服务连不上，请改用邀请码");
+      this.signalCode = r.body.code;
+      this.signalToken = r.body.token;
+      this.emit("signal", { kind: "room", roomCode: this.signalCode });
+      this.pollAnswer(Date.now());
+      return room;
+    }
+
+    // 房主：轮询应答。连上、超时、房间过期三种情况都要有明确的收尾，不能静静地卡住
+    pollAnswer(startedAt){
+      clearTimeout(this.signalTimer);
+      this.signalTimer = setTimeout(async () => {
+        if (!this.signalCode || !this.hosting) return;
+        // 别拿 this.dc 判「连上没」：房主的 dc 在 createDataChannel 那一刻就存在了，
+        // 那样第一跳就会退出。真正的标志是远端描述被应用（不管是这里收的还是手动粘的）
+        if (!this.pc || this.pc.remoteDescription) return;
+        if (Date.now() - startedAt > SIGNAL_WAIT_MS){
+          this.dropSignalRoom();
+          this.emit("signal", { kind: "room.timeout" });
+          return;
+        }
+        let r;
+        try {
+          r = await this.signalJson(signalBase() + "/answer?code=" + this.signalCode +
+                                    "&token=" + encodeURIComponent(this.signalToken));
+        } catch (_) {
+          this.pollAnswer(startedAt);                          // 网络抖一下不算数，接着等
+          return;
+        }
+        if (r.status === 204){ this.pollAnswer(startedAt); return; }
+        if (r.status === 404){
+          this.dropSignalRoom();
+          this.emit("signal", { kind: "room.timeout" });
+          return;
+        }
+        if (r.status !== 200 || !r.body.answer){ this.pollAnswer(startedAt); return; }
+        try {
+          await this.acceptRemoteCode(r.body.answer);
+          this.dropSignalRoom();                               // 接上头了，号还回号池
+        } catch (error){
+          this.fail(error.message || "对方的应答用不了");
+        }
+      }, SIGNAL_POLL_MS);
+    }
+
+    // 客机：输 4 位号 → 取 offer → 回 answer
+    async joinWithRoomCode(code, name){
+      const base = signalBase();
+      if (!base) throw new Error("这一版没有配信令服务，请用邀请码");
+      const clean = String(code || "").replace(/\D/g, "");
+      if (clean.length !== 4) throw new Error("房间号是 4 位数字");
+      this.useStun = true;
+      let got;
+      try {
+        got = await this.signalJson(base + "/offer?code=" + clean);
+      } catch (_) { throw new Error("信令服务连不上，请改用邀请码"); }
+      if (got.status === 404) throw new Error("没有这个房间号，或者它已经过期了（房间只留 2 分钟）");
+      if (got.status !== 200 || !got.body.offer) throw new Error("信令服务返回的内容不对，请改用邀请码");
+
+      await this.joinWithCode(got.body.offer, name);           // 照旧，顺便把应答码存进 this.lastCode
+      let r;
+      try {
+        r = await this.signalJson(base + "/answer?code=" + clean, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ answer: this.lastCode, name: this.myName })
+        });
+      } catch (_) { throw new Error("应答没发出去，请改用邀请码"); }
+      if (r.status === 409) throw new Error("这个房间已经有人加入了");
+      if (r.status === 404) throw new Error("房间过期了，让房主重开一个");
+      if (r.status !== 200) throw new Error("应答没发出去，请改用邀请码");
+      this.emit("signal", { kind: "room.joined", roomCode: clean });
+    }
+
+    // 用完就销毁：把号早点还回去，也免得别人还能取到这间房的 offer
+    dropSignalRoom(){
+      clearTimeout(this.signalTimer);
+      this.signalTimer = null;
+      const code = this.signalCode, token = this.signalToken;
+      this.signalCode = null; this.signalToken = null;
+      if (!code || !signalBase()) return;
+      signalFetch(signalBase() + "/close?code=" + code + "&token=" + encodeURIComponent(token),
+                  { method: "POST" }).catch(() => {});
     }
 
     openPeer(){
       if (typeof global.RTCPeerConnection !== "function"){
         throw new Error("这个环境不支持 WebRTC，热点联机用不了");
       }
-      // 不配任何 iceServer：同一热点下走 host 候选直连就够，也不想为了联机去依赖外部服务
-      this.pc = new global.RTCPeerConnection({ iceServers: [] });
+      /* 走房间号那条路时挂上公共 STUN，走复制粘贴那条路时不挂。
+         为什么分开：STUN 会多出 srflx 候选，正好覆盖「mDNS 名解析不了」的情况
+         （浏览器给的 host 候选是 xxx.local，iOS 上解析它要 App 持有本地网络权限，
+         而那个权限属于 B站 App、不属于我们）。代价是码会变长、候选收集要多等一会儿——
+         对复制粘贴是实打实的体验损失，对房间号则一点都不疼，因为码不过人眼。
+         真机验出 mDNS 确实不通的话，再把复制粘贴那条也打开。 */
+      const iceServers = this.useStun
+        ? [{ urls: ["stun:stun.miwifi.com:3478", "stun:stun.qq.com:3478"] }]
+        : [];
+      this.pc = new global.RTCPeerConnection({ iceServers });
       this.pc.oniceconnectionstatechange = () => {
         const state = this.pc && this.pc.iceConnectionState;
         if (state === "failed" || state === "disconnected"){
@@ -430,6 +595,7 @@
 
     teardown(){
       this.closing = true;
+      this.dropSignalRoom();          // 不然取消开房之后，那个号还在服务端挂着两分钟
       this.stopPing();
       clearTimeout(this.helloTimer);
       this.helloTimer = null;
@@ -452,6 +618,8 @@
       this.hosting = false;
       this.peerName = null;
       this.latency = null;
+      this.lastCode = null;
+      this.useStun = false;
     }
   }
 
