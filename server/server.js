@@ -398,6 +398,17 @@ export function createGameServer(options = {}) {
     noServer: true,
     clientTracking: true,
     maxPayload: maxMessageBytes,
+    // 快照是重复度极高的 JSON，permessage-deflate 实测能压到约 1/2.9——
+    // 每个客机从 80 KB/s 降到 28 KB/s，中转带宽是这台机器最贵的东西，必须开。
+    // concurrencyLimit 挡住「一堆房间同时刷快照把 CPU 吃光」；
+    // threshold 以下的小包（输入、心跳、房间状态）不压，压了反而更大。
+    perMessageDeflate: {
+      zlibDeflateOptions: { level: 6, memLevel: 8 },
+      concurrencyLimit: 10,
+      threshold: 512,
+      serverNoContextTakeover: false,   // 保留上下文：连续快照之间高度相似，字典复用省得多
+      clientNoContextTakeover: false,
+    },
   });
   let heartbeatTimer = null;
   let listening = false;

@@ -2212,17 +2212,60 @@ function update(dt, now){
   }
 }
 
-function copyScalars(entity){
+/* ---------- 快照瘦身 ----------
+   原来 buildNetworkState 是把整个实体的标量字段一股脑倒过去，于是像僵尸的绕障状态
+   （spd / wob / chk / stuck / side / pref / px / py）和 BOSS 的五个技能冷却
+   这些**纯房主侧的 AI 状态**，全都按 17 位浮点跨网络发了一遍——客机一个都不看。
+   实测：一只僵尸 330 字节、一个 BOSS 560 字节，而真正被渲染的字段不到一半。
+
+   现在按类型走白名单 + 定点数。白名单是照着「客机那边到底谁会读它」一个字段一个字段
+   对出来的（渲染函数 + 客机本地要跑的 collide / pickAimTarget），所以下面每组都注了出处。
+   **加字段时必须同时改这里**，否则新字段到不了客机，表现是「房主看得见客机看不见」。
+
+   数字是缩放倍数：10 = 保留 1 位小数，1000 = 3 位，0 = 原样（布尔/字符串/整数）。
+   坐标 1 位小数够了——世界 1920×1280，半个像素的差别看不出来；
+   朝向给 3 位，那是单位向量，再糙转身会一格一格的。 */
+function packNet(o, spec){
   const out = {};
-  for (const [key, value] of Object.entries(entity)){
-    if (key === 'T' || key === 'target' || key === 'cv') continue;
-    if (value === null || ['number','string','boolean'].includes(typeof value)) out[key] = value;
+  for (const key in spec){
+    const v = o[key];
+    if (v === undefined) continue;
+    const scale = spec[key];
+    out[key] = (scale && typeof v === 'number' && Number.isFinite(v))
+      ? Math.round(v * scale) / scale : v;
   }
   return out;
 }
+const NET_SPEC = {
+  // drawZombie: x y fx fy hit walk ｜ pickAimTarget: x y r hp ｜ 血条: hp maxhp
+  zombie:   { x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
+  devil:    { x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
+  // drawBoss 还要 mode / rage 决定姿态与配色；tier 用来在客机侧还原 T（技能表）
+  boss:     { x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100,
+              boss:0, tier:0, mode:0, rage:0 },
+  // 弹体：客机会按速度外推到下一份快照，所以 vx/vy 必须给
+  bullet:   { x:10, y:10, vx:10, vy:10, len:0, life:100, max:100, flame:0 },
+  grenade:  { x:10, y:10, vx:10, vy:10 },
+  rocket:   { x:10, y:10, vx:10, vy:10 },
+  fireball: { x:10, y:10, vx:10, vy:10, green:0 },
+  // 油桶：客机的 collide 会读 x/y/r/hp，pickAimTarget 会读 fuse（点着了就不锁）
+  barrel:   { x:10, y:10, r:0, hp:0, fuse:100 },
+  pickup:   { x:10, y:10, type:0, life:100 },
+  // 金币不外推：飞行只有零点几秒，25Hz 的跳变看不出来，不值得为它多发两个字段
+  coin:     { x:10, y:10, life:100, pop:100 },
+  hazard:   { x:10, y:10, r:10, warn:100, life:100 },
+  banner:   { text:0, sub:0, life:100, big:0, small:0 },
+  // 玩家：drawPlayer + 名牌血条 + 客机本地的 collide / 武器栏 / 商店 / 无双按钮
+  player:   { id:0, name:0, slot:0, color:0, x:10, y:10, r:0, hp:10, alive:0,
+              fx:1000, fy:1000, walk:10, moving:0, weapon:0, flash:100, inv:100,
+              ultT:100, ultCharge:0, ultKills:0, swing:10, lastShot:0,
+              cash:0, lastUltSeq:0 },
+};
+const packList = (list, spec) => list.map(o => packNet(o, spec));
+
 
 function networkPlayerState(p){
-  const out = copyScalars(p);
+  const out = packNet(p, NET_SPEC.player);
   out.ammo = p.ammo.map(value => Number.isFinite(value) ? value : -1);
   out.unlocked = p.unlocked.slice();
   return out;
@@ -2235,18 +2278,18 @@ function buildNetworkState(){
     wave, spawnQueue, devilQueue, spawnTimer, waveRest,
     score, kills, streak, multiplier, bestMulti, comboTimer, decayTimer,
     players:allPlayers().map(networkPlayerState),
-    zombies:zombies.map(copyScalars),
-    devils:devils.map(copyScalars),
-    bosses:bosses.map(copyScalars),
-    bullets:bullets.map(copyScalars),
-    grenades:grenades.map(copyScalars),
-    rockets:rockets.map(copyScalars),
-    barrels:barrels.map(copyScalars),
-    fireballs:fireballs.map(copyScalars),
-    pickups:pickups.map(copyScalars),
-    coins:coins.map(copyScalars),
-    hazards:hazards.map(copyScalars),
-    banners:banners.map(copyScalars)
+    zombies:packList(zombies, NET_SPEC.zombie),
+    devils:packList(devils, NET_SPEC.devil),
+    bosses:packList(bosses, NET_SPEC.boss),
+    bullets:packList(bullets, NET_SPEC.bullet),
+    grenades:packList(grenades, NET_SPEC.grenade),
+    rockets:packList(rockets, NET_SPEC.rocket),
+    barrels:packList(barrels, NET_SPEC.barrel),
+    fireballs:packList(fireballs, NET_SPEC.fireball),
+    pickups:packList(pickups, NET_SPEC.pickup),
+    coins:packList(coins, NET_SPEC.coin),
+    hazards:packList(hazards, NET_SPEC.hazard),
+    banners:packList(banners, NET_SPEC.banner)
   };
 }
 

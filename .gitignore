@@ -23,3 +23,6 @@ release/
 # Python
 __pycache__/
 *.pyc
+
+# Cloudflare 部署令牌：只放本机，绝不进仓库
+signal/.cf-token
