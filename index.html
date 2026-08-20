@@ -95,8 +95,8 @@
       <span>我同意为联机在两台设备之间直接传输昵称、操作输入与战局状态；不经过任何服务器，也不保存聊天或长期战绩。</span>
     </label>
     <div id="onlineJoin" class="online-actions">
-      <button class="btn" id="btnCreateRoom">我开房 · 出邀请码</button>
-      <button class="btn minor" id="btnJoinP2P">我加入 · 粘对方的码</button>
+      <button class="btn" id="btnCreateRoom">我开房 · 出房间码</button>
+      <button class="btn minor" id="btnJoinP2P">我加入 · 输房间码</button>
     </div>
     <!-- 6 位房间码：走房间服务器（2~4 人，不要求同一个网络）。
          码的字母表去掉了 I O 0 1，念出来不会错。 -->
@@ -241,8 +241,9 @@
      CDN 挂了也只是 window.toy 缺失，游戏本体不受影响。 -->
 <script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 <script src="multiplayer.js"></script>
-<!-- p2p.js 必须在 multiplayer.js 之后：它会把 window.zombieNetwork 换成热点直连的实现，
-     WSS 版本原样留在 window.zombieWsNetwork，等哪天真有公网服务器了再换回去 -->
+<!-- 联机走 multiplayer.js（房间服务器，2~4 人）。
+     p2p.js 排在它之后：局域网直连整套保留着，导出成 window.zombiePeerNetwork，
+     目前不接管 window.zombieNetwork —— 那条路的传输层还没有真机结论 -->
 <script src="p2p.js"></script>
 <script src="script.js"></script>
 </body>
