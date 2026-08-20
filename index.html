@@ -64,7 +64,7 @@
   </div>
   <div style="height:20px"></div>
   <button class="btn" id="btnStart">▶ 单人游戏</button>
-  <button class="btn online" id="btnOnline">◉ 2 人热点联机</button>
+  <button class="btn online" id="btnOnline">◉ 2 人局域网联机</button>
   <!-- 排行榜依赖 Toy JS SDK，拿不到 SDK 的环境（本地开发、站外托管）保持隐藏，
        不留一个点了没反应的按钮 -->
   <button class="btn minor hidden" id="btnRank">🏆 排行榜</button>
@@ -78,13 +78,13 @@
 </div>
 
 <div id="online" class="screen hidden">
-  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">热点<span>联机</span></h1>
-  <div class="sub">2 人 · 连同一个热点 · 不需要服务器</div>
+  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">局域网<span>联机</span></h1>
+  <div class="sub">2 人 · 连同一个 WiFi · 不需要服务器</div>
   <div class="online-panel">
     <div class="online-howto">
-      一个人开热点，另一个连上去。<br>
+      <b>两台设备连同一个 WiFi</b>（家里、宿舍、咖啡厅都行）。<br>
       一个点「我开房」拿 4 位房间号，另一个点「我加入」输进去就连上了。<br>
-      开热点那位要开着自己的流量，不然游戏页面都打不开。
+      不要用「一台手机开热点」那种连法——真机测下来连不上。
     </div>
     <label class="online-field">
       <span>玩家昵称</span>

@@ -543,7 +543,8 @@ let wave, spawnQueue, devilQueue, spawnTimer, waveRest, score, kills,
 let gameOverTimer = null;
 
 /* ---------- 多人战局：房主权威，客端只发输入/收快照 ---------- */
-// 联机 = 热点直连（p2p.js）：两台手机连同一个热点，走 WebRTC DataChannel 点对点，不需要服务器。
+// 联机 = 局域网直连（p2p.js）：两台设备连同一个 WiFi，走 WebRTC DataChannel 点对点。
+// 游戏数据全程 P2P；4 位房间号背后那个信令服务只负责接头，递完码就退场。
 // 之前这里关着，是因为当时的联机要一台公网 WSS 服务器，而 Toy 只托管静态包、不跑 Node，
 // 那个按钮点进去必然是「连接中断」。换成 P2P 之后不再依赖任何服务器，入口才重新打开。
 // WSS 那套整个保留在 multiplayer.js / server/ / test/，哪天真有服务器了还能用。
@@ -3716,7 +3717,7 @@ function setRoomRequestBusy(busy){
 }
 
 /* ---------- 信令：两台手机之间人肉互发一次「码」 ----------
-   热点直连没有服务器，也就没有信令通道，offer/answer 只能靠玩家自己发给对方
+   这是没有信令服务时的兜底路径：offer/answer 只能靠玩家自己发给对方
    （微信、面对面念都行）。三个阶段：
      host      房主出邀请码，同时等着粘对方的应答码
      guest-in  客机先粘房主的邀请码
@@ -4162,7 +4163,7 @@ document.addEventListener('visibilitychange', () => {
   lastSnapshotSent = performance.now();
   net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
 });
-// 会话恢复只对 WSS 后端有意义。热点直连的 hasSavedSession() 恒为 false：一条 P2P 管道
+// 会话恢复只对 WSS 后端有意义。局域网直连的 hasSavedSession() 恒为 false：一条 P2P 管道
 // 随页面而生随页面而灭，刷新就等于断线，没有能被「恢复」的东西——与其假装能恢复，不如直说。
 if (ONLINE_ENABLED && net.hasSavedSession()){
   restoringSavedSession = true;

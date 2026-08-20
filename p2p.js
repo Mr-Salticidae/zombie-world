@@ -1,12 +1,18 @@
-/* 热点直连联机：两台手机连同一个热点，走 WebRTC DataChannel 点对点，不需要任何服务器。
+/* 局域网直连联机：两台设备连同一个 WiFi，走 WebRTC DataChannel 点对点，游戏数据不经过任何服务器。
  *
  * 为什么不是 WebSocket：Toy 只托管静态包、不跑 Node，而我们的玩家几乎全在手机上，
- * 「租一台公网服务器」和「拿 PC 当主机」两条路都不成立。同一热点下两台设备在一个内网里，
+ * 「租一台公网服务器」和「拿 PC 当主机」两条路都不成立。同一个 WiFi 下两台设备在一个内网里，
  * 用 host 候选直接互连，连 NAT 穿透都不用碰——P2P 最常见的死法（对称 NAT 要 TURN 中转，
  * 而 TURN 就是一台要自己养的服务器）在这个场景下不存在。
  *
- * 为什么只有 2 人：没有服务器就没有信令通道，offer/answer 只能靠人肉互发。
- * 两人一来一回两条码就够；四人星型要六次握手，那个 UX 不能用。所以 capacity 定死 2。
+ * **不要用「一台手机开热点」那种连法。** 2026-08-12 真机测下来连不上：浏览器只沿默认路由
+ * 那张网卡采集 ICE 候选，而手机开热点时默认路由不走热点网卡，热点网段的地址永远不会被报出来。
+ * 这不是代码 bug，改不了，只能换形态。详见 README。
+ *
+ * 为什么只有 2 人：原本是「没有服务器就没有信令通道，offer/answer 只能靠人肉互发」——
+ * 两人一来一回两条码就够，四人星型要六次握手、那个 UX 不能用。
+ * 现在有了 4 位房间号（signal/，只负责接头、不碰游戏数据），这条限制在技术上已经松了，
+ * 但房主权威模拟那套还没按 3~4 人调过，所以 capacity 仍然定死 2。
  *
  * 这个类对 script.js 呈现的接口与 multiplayer.js 的 ZombieNetwork 完全一致
  * （同样的方法、同样的 room 形状、同样的 7 个事件），所以游戏本体一行都不用改。
@@ -330,14 +336,15 @@
 
     openPeer(){
       if (typeof global.RTCPeerConnection !== "function"){
-        throw new Error("这个环境不支持 WebRTC，热点联机用不了");
+        throw new Error("这个环境不支持 WebRTC，局域网联机用不了");
       }
       /* 走房间号那条路时挂上公共 STUN，走复制粘贴那条路时不挂。
-         为什么分开：STUN 会多出 srflx 候选，正好覆盖「mDNS 名解析不了」的情况
-         （浏览器给的 host 候选是 xxx.local，iOS 上解析它要 App 持有本地网络权限，
-         而那个权限属于 B站 App、不属于我们）。代价是码会变长、候选收集要多等一会儿——
-         对复制粘贴是实打实的体验损失，对房间号则一点都不疼，因为码不过人眼。
-         真机验出 mDNS 确实不通的话，再把复制粘贴那条也打开。 */
+         为什么要 STUN：iOS 侧的 WebKit 一律只给 mDNS 名（xxx.local）、不给真实内网 IP，
+         两端不在同一个网段时那个名字根本解析不出来。srflx 候选正好兜住这一类。
+         注意不是「iOS 缺本地网络权限」—— 2026-08-12 的真机测试已经排除了那个猜想，
+         权限是正常的；真正卡住的是网卡/路由那一层，见 README《为什么不能用开热点那种连法》。
+         代价是码会变长、候选收集要多等一会儿——对复制粘贴是实打实的体验损失，
+         对房间号则一点都不疼，因为码不过人眼。 */
       const iceServers = this.useStun
         ? [{ urls: ["stun:stun.miwifi.com:3478", "stun:stun.qq.com:3478"] }]
         : [];
@@ -346,7 +353,7 @@
         const state = this.pc && this.pc.iceConnectionState;
         if (state === "failed" || state === "disconnected"){
           this.emit("status", { state:"disconnected" });
-          if (state === "failed") this.fail("两台手机没能连上，确认都连着同一个热点再重试");
+          if (state === "failed") this.fail("两台设备没能连上，确认都连着同一个 WiFi 再重试（一台手机开热点那种连法是不行的）");
         }
       };
     }
@@ -567,7 +574,7 @@
 
     // 接口对齐：WSS 版靠房间码加入，P2P 靠邀请码，这个方法在 P2P 下不该被调到
     joinRoom(){
-      return Promise.reject(new Error("热点联机请用邀请码加入，不是房间码"));
+      return Promise.reject(new Error("局域网联机请用 4 位房间号或邀请码加入"));
     }
 
     startPing(){
