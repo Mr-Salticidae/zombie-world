@@ -1,0 +1,30 @@
+[Unit]
+Description=Zombie World 房间服务器（WebSocket 中转）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/zombie-world
+ExecStart=/usr/bin/node server/server.js
+Restart=always
+RestartSec=3
+
+# 只监听回环，对外那一层交给 Caddy
+Environment=HOST=127.0.0.1
+Environment=PORT=8080
+
+# ⚠️ 这一行最容易填错。游戏跑在 iframe 里，源是 bilibilitoy.com 不是 bilibili.com。
+#    填错的表现是「连接被拒绝」，而且从客户端完全看不出原因。
+#    本地调试想连的话，再补一个 http://localhost:8123。
+Environment=ALLOWED_ORIGINS=https://www.bilibilitoy.com
+
+# 基本加固：这个进程只需要读自己的代码目录
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/zombie-world
+
+[Install]
+WantedBy=multi-user.target

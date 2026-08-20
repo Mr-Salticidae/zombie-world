@@ -163,6 +163,8 @@ function sendError(ws, error, requestType) {
   });
 }
 
+const STARTED_AT = Date.now();
+
 function staticFileHandler(staticRoot) {
   const resolvedRoot = path.resolve(staticRoot);
   const rootPrefix = `${resolvedRoot}${path.sep}`;
@@ -177,6 +179,19 @@ function staticFileHandler(staticRoot) {
   ]);
 
   return (request, response) => {
+    // 健康检查。部署完拿它验一句话就知道服务活没活，
+    // 也给反代/监控一个不依赖静态文件的探测点。
+    if (request.url === "/healthz" || request.url === "/healthz/") {
+      const body = JSON.stringify({ ok: true, service: "zombie-world-rooms",
+                                   uptime: Math.round((Date.now() - STARTED_AT) / 1000) });
+      response.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Content-Length": Buffer.byteLength(body),
+      });
+      response.end(request.method === "HEAD" ? undefined : body);
+      return;
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       response.writeHead(405, { Allow: "GET, HEAD" });
       response.end("Method Not Allowed");

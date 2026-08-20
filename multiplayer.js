@@ -28,7 +28,18 @@
     } catch (_) { return false; }
   }
 
+  /* 线上房间服务器的地址。
+     不能靠 location.host 猜：游戏在 Toy 平台上跑在 www.bilibilitoy.com 的 iframe 里，
+     跟服务器根本不同源，猜出来的地址必然是错的。所以这里写死一个默认值，
+     由 localStorage 的 zombie-world-server 覆盖（换服务器 / 真机排查时不用重新过审）。
+     留空 = 回落到 location.host —— 本地开发时游戏就是这台服务器自己发的，正好对得上。
+
+     反过来一条同样重要：服务器那边的 ALLOWED_ORIGINS 必须写 https://www.bilibilitoy.com，
+     不是 bilibili.com。填错的表现是「连接被拒绝」且客户端看不出原因。见 server/deploy/README.md。 */
+  const SERVER_DEFAULT = "";
+
   function defaultServerUrl(){
+    if (SERVER_DEFAULT) return SERVER_DEFAULT;
     if (location.protocol === "http:" || location.protocol === "https:"){
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
       return protocol + "//" + location.host + "/ws";

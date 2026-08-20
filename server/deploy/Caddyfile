@@ -1,0 +1,23 @@
+# 把 game.example.com 换成你自己的域名，并先把它解析到这台机器的 IP。
+# Caddy 会自动申请并续期 Let's Encrypt 证书——所以安全组要同时放行 80 和 443，
+# 只开 443 的话签不下来（80 是 ACME 的 HTTP-01 验证要用的）。
+
+game.example.com {
+	encode zstd gzip
+
+	# WebSocket 反代。Node 只监听 127.0.0.1:8080，不直接对外。
+	# 中转的是实时快照，所以关掉缓冲、把超时放长——
+	# 默认的短超时会在房间空闲一会儿之后把长连接掐掉，表现是「玩着玩着掉线」。
+	reverse_proxy 127.0.0.1:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+
+	log {
+		output file /var/log/caddy/zombie-world.log
+		format json
+	}
+}

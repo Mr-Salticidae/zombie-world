@@ -395,3 +395,23 @@ test("removes timed-out guests and closes an active room after host timeout", as
   await delay(10);
   assert.equal(fixture.server.rooms.has(second.hostState.code), false);
 });
+
+test("exposes /healthz so a deploy can be verified in one line", async () => {
+  // 部署完最先跑的就是这一句。它走的是 HTTP 那一侧、跟 WebSocket 无关，
+  // 因为线上那台机器只做房间中转、并不发游戏本体。
+  const fixture = await startFixture();
+  try {
+    const res = await fetch(`${fixture.httpUrl}/healthz`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") || "", /application\/json/);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.service, "zombie-world-rooms");
+    assert.ok(Number.isInteger(body.uptime) && body.uptime >= 0);
+
+    const head = await fetch(`${fixture.httpUrl}/healthz`, { method: "HEAD" });
+    assert.equal(head.status, 200, "HEAD 也要能探，监控经常只发 HEAD");
+  } finally {
+    await fixture.close();
+  }
+});
