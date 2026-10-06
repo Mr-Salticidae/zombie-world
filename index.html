@@ -118,6 +118,7 @@
   <button class="btn minor hidden" id="btnScreen">屏幕方向：竖屏</button>
   <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
   <button class="btn minor" id="btnAim">自动瞄准：开</button>
+  <button class="btn minor" id="btnMusic">音乐：开</button>
   <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
   <button class="btn minor" id="btnHelp">操作说明</button>
   <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
@@ -263,6 +264,7 @@
   <button class="btn" id="btnResume">继续游戏</button>
   <button class="btn minor" id="btnMode2">操作模式：键盘经典</button>
   <button class="btn minor" id="btnAim2">自动瞄准：开</button>
+  <button class="btn minor" id="btnMusic2">音乐：开</button>
   <button class="btn minor hidden" id="btnScreen2">屏幕方向：竖屏</button>
   <button class="btn minor" id="btnQuit">返回主菜单</button>
 </div>
@@ -312,6 +314,8 @@
      p2p.js 排在它之后：局域网直连整套保留着，导出成 window.zombiePeerNetwork，
      目前不接管 window.zombieNetwork —— 那条路的传输层还没有真机结论 -->
 <script src="p2p.js"></script>
+<!-- 背景音乐：Web Audio 实时合成，零音频文件；必须排在 script.js 之前 -->
+<script src="music.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

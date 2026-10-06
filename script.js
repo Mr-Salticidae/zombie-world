@@ -334,6 +334,7 @@ function audioInit(){
     comp.threshold.value = -14; comp.ratio.value = 6; comp.attack.value = .002; comp.release.value = .12;
     master = AC.createGain(); master.gain.value = 0.6;
     master.connect(comp); comp.connect(AC.destination);
+    musicAttach();                    // 自己兜着异常，坏了也只是没音乐
   } catch (err){
     AC = null; audioDead = true;      // 别反复重试，静音继续玩
     noteTouchError(err);
@@ -501,6 +502,67 @@ function sfx(type){
     case 'nope':                                   // 钱不够 / 买不了
       sweep('square', 210, 150, .12, .2);
       break;
+  }
+}
+
+/* ========================================================
+   背景音乐：引擎和曲谱在 music.js，这里只决定「现在该放哪首、多厚」
+   ======================================================== */
+const MUSIC_KEY = 'zombie-world-music';
+let musicOn = localStoreGet(MUSIC_KEY) !== 'off';    // 默认开
+let music = null;
+// 跟着 audioInit 走：AudioContext 只能在用户手势里建，音乐也就只能从第一次点按开始响。
+// 和 audioInit 一样绝不能抛——它在 touchstart 里被调用，抛出去整条触摸链都会断
+function musicAttach(){
+  if (music || !AC || !window.ZombieMusic) return;
+  try {
+    music = window.ZombieMusic.createEngine(AC, AC.destination, { lite:isPhone() });
+    music.setEnabled(musicOn);
+  } catch (err){
+    music = null;
+    noteTouchError(err);
+  }
+}
+
+// 主菜单曲要在第一次点按时就响：菜单上大部分按钮并不调用 audioInit（触摸和按键各自已经有了），
+// 这里补一个全局点击。捕获阶段先跑，不影响按钮自己的处理；AC 建好之后它只剩一次空判断
+addEventListener('click', () => audioInit(), true);
+
+// BOSS 每一波都有，挂在「活着」上会整局都是 BOSS 曲。所以是「走进画面」才切，
+// 离开画面后再撑一会儿才切回去，免得它在画面边上晃时音乐来回跳
+const MUSIC_BOSS_HOLD = 4000;
+let musicBossSeenAt = -Infinity;
+function musicScene(now){
+  if (state === 'dying') return { scene:'gameover' };
+  if (state === 'over') return { scene:'results' };
+  if (state !== 'play' && state !== 'pause') return { scene:'menu' };
+  if (shopOpen) return { scene:'shop' };
+  if (bosses && bosses.length){
+    const m = 40;
+    for (const b of bosses){
+      if (b.x > cam.x - m && b.x < cam.x + VW + m && b.y > cam.y - m && b.y < cam.y + VH + m){
+        musicBossSeenAt = now; break;
+      }
+    }
+    if (now - musicBossSeenAt < MUSIC_BOSS_HOLD) return { scene:'boss' };
+  }
+  // 战斗随波次加厚：开打前只有贝斯和鼓，第 1 波加琶音，之后加主旋律，后期或尸潮太密再加一层
+  const alive = zombies.length + devils.length;
+  let level = wave <= 0 ? 1 : wave === 1 ? 2 : 3;
+  if (alive >= 12) level = Math.max(level, 3);
+  if (wave >= 6 || alive >= 30) level = 4;
+  return { scene:'combat', level, bpm:144 + Math.min(18, Math.max(0, wave - 1) * 2) };
+}
+function musicTick(now){
+  if (!music) return;
+  try {
+    const sc = musicScene(now);
+    music.setScene(sc.scene, sc);
+    music.setDuck(state === 'pause');
+    music.tick();
+  } catch (err){
+    music = null;                                   // 音乐坏了就静音继续玩，别把主循环带走
+    noteTouchError(err);
   }
 }
 
@@ -3868,6 +3930,22 @@ function toggleAim(){
   sfx('click');
 }
 aimBtns.forEach(b => { if (b) b.onclick = toggleAim; });
+/* ---------- 背景音乐开关（记在本地） ---------- */
+const musicBtns = [document.getElementById('btnMusic'), document.getElementById('btnMusic2')];
+function refreshMusicBtns(){
+  const label = '音乐：' + (musicOn ? '开' : '关');
+  for (const b of musicBtns) if (b) b.textContent = label;
+}
+function toggleMusic(){
+  musicOn = !musicOn;
+  localStoreSet(MUSIC_KEY, musicOn ? 'on' : 'off');
+  audioInit();                                  // 这一下点按本身就是手势，顺便把音频建起来
+  if (music) music.setEnabled(musicOn);
+  refreshMusicBtns();
+  sfx('click');
+}
+musicBtns.forEach(b => { if (b) b.onclick = toggleMusic; });
+refreshMusicBtns();
 refreshAimBtns();
 /* 触屏诊断开关。默认关，也不记进 localStorage——它是排查用的，不该有人下次进来还开着 */
 const btnTouchDbg = document.getElementById('btnTouchDbg');
@@ -4401,6 +4479,7 @@ function loop(now){
     if (shake > 0) shake = Math.max(0, shake - dt*30);
   }
   if (state === 'play' || state === 'dying' || state === 'pause') render();
+  musicTick(now);
   requestAnimationFrame(loop);
 }
 reset();

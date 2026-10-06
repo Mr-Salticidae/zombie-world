@@ -20,3 +20,9 @@ test('index.html 的每段内联脚本都能解析', () => {
   }
 });
 
+test('外链脚本的加载顺序：music.js 要在 script.js 之前', () => {
+  const srcs = [...html.matchAll(/<script[^>]*\bsrc="([^"]+)"/g)].map(m => m[1]);
+  const at = name => srcs.indexOf(name);
+  assert.ok(at('music.js') >= 0, '没引入 music.js');
+  assert.ok(at('music.js') < at('script.js'), 'music.js 排在了 script.js 后面');
+});

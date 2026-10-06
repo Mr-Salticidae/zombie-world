@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>背景音乐试听</title>
+<style>
+  :root { --bg:#16181d; --panel:#20232a; --line:#333843; --text:#e8eaee; --dim:#9aa1ad; --accent:#ffcb55; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 system-ui, "Microsoft YaHei", sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.note { color:var(--dim); margin:0 0 20px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  h2 { font-size:16px; margin:0 0 12px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button { background:#2c313b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.on { background:var(--accent); color:#1b1d22; border-color:var(--accent); }
+  input[type=range] { width:220px; }
+  #status { font-family:ui-monospace, Consolas, monospace; color:var(--dim); margin-top:10px; white-space:pre-wrap; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>背景音乐试听</h1>
+  <p class="note">直接演奏仓库里的 <code>music.js</code>（和游戏里是同一份）。场景切换照游戏的规矩来：一般等到小节线，BOSS 和阵亡在下一拍切。</p>
+
+  <section>
+    <h2>场景</h2>
+    <div class="row" id="scenes"></div>
+    <div class="row" style="margin-top:12px">
+      <label>波次 <input type="range" id="wave" min="0" max="12" value="1"></label>
+      <span id="waveLabel"></span>
+      <label><input type="checkbox" id="crowd"> 尸潮很密（≥30）</label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="pause">暂停压低</button>
+      <button id="stop">停</button>
+    </div>
+    <div id="status">点一个场景开始。</div>
+  </section>
+
+  <section>
+    <h2>离线渲染</h2>
+    <div class="row">
+      <button id="renderReel">渲染一局串烧（约 70 秒）</button>
+      <span id="renderMsg" class="note"></span>
+    </div>
+  </section>
+</main>
+
+<script src="../music.js"></script>
+<script>
+'use strict';
+const M = window.ZombieMusic;
+const SCENE_NAMES = { menu:'主菜单', combat:'战斗', boss:'BOSS', shop:'波间商店', gameover:'阵亡', results:'结算' };
+let ac = null, engine = null, raf = 0, scene = null, ducked = false;
+
+// 战斗档位和速度：照抄 script.js 的 musicScene()，改那边记得改这里
+function combatOpts(){
+  const wave = Number(document.getElementById('wave').value);
+  const alive = document.getElementById('crowd').checked ? 30 : 0;
+  let level = wave <= 0 ? 1 : wave === 1 ? 2 : 3;
+  if (alive >= 12) level = Math.max(level, 3);
+  if (wave >= 6 || alive >= 30) level = 4;
+  return { level, bpm:144 + Math.min(18, Math.max(0, wave - 1) * 2) };
+}
+function loop(){
+  if (engine && scene){
+    engine.setScene(scene, scene === 'combat' ? combatOpts() : {});
+    engine.tick();
+    const p = engine.playing;
+    document.getElementById('status').textContent = p
+      ? `${SCENE_NAMES[p.key]} · 第 ${p.bar + 1} 小节 · 档位 ${p.level} · ${p.bpm} BPM`
+      : (scene === 'gameover' ? '阵亡收尾放完了（只放一遍）' : '');
+  }
+  raf = requestAnimationFrame(loop);
+}
+function play(key){
+  if (!ac){
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    engine = M.createEngine(ac);
+    loop();
+  }
+  if (ac.state === 'suspended') ac.resume();
+  scene = key;
+  for (const b of document.querySelectorAll('#scenes button')) b.classList.toggle('on', b.dataset.key === key);
+}
+for (const key of Object.keys(SCENE_NAMES)){
+  const b = document.createElement('button');
+  b.textContent = SCENE_NAMES[key]; b.dataset.key = key;
+  b.onclick = () => play(key);
+  document.getElementById('scenes').appendChild(b);
+}
+const waveLabel = () => {
+  const o = combatOpts();
+  document.getElementById('waveLabel').textContent = `第 ${document.getElementById('wave').value} 波 → 档位 ${o.level}、${o.bpm} BPM`;
+};
+document.getElementById('wave').oninput = waveLabel;
+document.getElementById('crowd').onchange = waveLabel;
+waveLabel();
+document.getElementById('pause').onclick = e => {
+  ducked = !ducked; e.target.classList.toggle('on', ducked);
+  if (engine) engine.setDuck(ducked);
+};
+document.getElementById('stop').onclick = () => {
+  if (ac) ac.suspend();
+  scene = null;
+  for (const b of document.querySelectorAll('#scenes button')) b.classList.remove('on');
+};
+
+/* ---------- 离线渲染 ----------
+   script 里每一段：[持续秒数, 场景, 选项]。按 20 毫秒一帧推时间，和游戏主循环一样每帧 tick 一次 */
+const REEL = [
+  [8,  'menu'],
+  [10, 'combat', { level:2, bpm:144 }],
+  [8,  'combat', { level:3, bpm:148 }],
+  [10, 'boss'],
+  [8,  'shop'],
+  [10, 'combat', { level:4, bpm:154 }],
+  [5,  'gameover'],
+  [10, 'results'],
+];
+async function render(script, sr = 48000){
+  const total = script.reduce((s, [d]) => s + d, 0) + 1;
+  const oac = new OfflineAudioContext(2, Math.ceil(total * sr), sr);
+  const eng = M.createEngine(oac);
+  const marks = [];
+  let t = 0;
+  for (const [dur, key, opts] of script){
+    marks.push({ at:+t.toFixed(3), scene:key, opts:opts || null });
+    for (const end = t + dur; t < end; t += 0.02){
+      eng.setScene(key, opts || {});
+      eng.tick(t);
+    }
+  }
+  const buf = await oac.startRendering();
+  return { wav:toWav(buf), marks };
+}
+function toWav(buf){
+  const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate;
+  const data = new DataView(new ArrayBuffer(44 + len * ch * 2));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) data.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); data.setUint32(4, 36 + len * ch * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); data.setUint32(16, 16, true); data.setUint16(20, 1, true); data.setUint16(22, ch, true);
+  data.setUint32(24, sr, true); data.setUint32(28, sr * ch * 2, true); data.setUint16(32, ch * 2, true); data.setUint16(34, 16, true);
+  str(36, 'data'); data.setUint32(40, len * ch * 2, true);
+  const chans = Array.from({ length:ch }, (_, c) => buf.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++){
+    const v = Math.max(-1, Math.min(1, chans[c][i]));
+    data.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); o += 2;
+  }
+  return new Blob([data.buffer], { type:'audio/wav' });
+}
+// 给无头浏览器批量渲染用：返回 base64 的 WAV 和每段的起点
+window.renderToBase64 = async (script) => {
+  const { wav, marks } = await render(script);
+  const bytes = new Uint8Array(await wav.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return { b64:btoa(bin), marks };
+};
+window.REEL = REEL;
+document.getElementById('renderReel').onclick = async () => {
+  const msg = document.getElementById('renderMsg');
+  msg.textContent = '渲染中…';
+  const { wav } = await render(REEL);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(wav); a.download = '背景音乐_一局串烧.wav';
+  a.textContent = '下载 WAV'; msg.textContent = '';
+  msg.appendChild(a); a.click();
+};
+</script>
+</body>
+</html>
