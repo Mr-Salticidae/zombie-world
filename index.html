@@ -36,8 +36,7 @@
     var m = (e && e.message) || 'script error';
     var at = e && e.filename ? (' @ ' + String(e.filename).split('/').pop() + ':' + e.lineno + ':' + e.colno) : '';
     if (!window.__zwFirstError) window.__zwFirstError = m + at;
-    show('脚本出错：' + m + at + '
-（这一条会让整块功能消失。截图发给作者即可定位）');
+    show('脚本出错：' + m + at + '\n（这一条会让整块功能消失。截图发给作者即可定位）');
   }, true);
   window.addEventListener('unhandledrejection', function(e){
     var m = (e && e.reason && (e.reason.message || e.reason)) || 'promise rejected';
