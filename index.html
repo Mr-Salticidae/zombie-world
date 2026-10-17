@@ -105,22 +105,28 @@
     <div class="badge"><b>5</b>级BOSS</div>
     <div class="badge">无双<b>大招</b></div>
   </div>
-  <div style="height:20px"></div>
-  <button class="btn" id="btnStart">▶ 单人游戏</button>
-  <button class="btn online" id="btnOnline">◉ 多人联机</button>
-  <!-- 排行榜依赖 Toy JS SDK，拿不到 SDK 的环境（本地开发、站外托管）保持隐藏，
-       不留一个点了没反应的按钮 -->
-  <button class="btn minor hidden" id="btnRank">🏆 排行榜</button>
-  <button class="btn minor" id="btnDiff">难度：标准</button>
-  <button class="btn minor" id="btnQuality">画质：自动</button>
-  <!-- 转屏按钮同样是「拿得到能力才出现」：站外和 PC 上保持隐藏，
-       不留一个点了没反应的按钮（和排行榜入口一个规矩） -->
-  <button class="btn minor hidden" id="btnScreen">屏幕方向：竖屏</button>
-  <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
-  <button class="btn minor" id="btnAim">自动瞄准：开</button>
-  <button class="btn minor" id="btnMusic">音乐：开</button>
-  <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
-  <button class="btn minor" id="btnHelp">操作说明</button>
+  <!-- 首页一屏放完、不用滚：两个开局按钮并排，设置项收进网格，排行榜/说明作为次级入口 -->
+  <div class="menu-play">
+    <button class="btn" id="btnStart">▶ 单人游戏</button>
+    <button class="btn online" id="btnOnline">◉ 多人联机</button>
+  </div>
+  <div class="menu-set">
+    <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
+    <button class="btn minor" id="btnDiff">难度：标准</button>
+    <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
+    <button class="btn minor" id="btnAim">自动瞄准：开</button>
+    <button class="btn minor" id="btnQuality">画质：自动</button>
+    <button class="btn minor" id="btnMusic">音乐：开</button>
+    <!-- 转屏按钮同样是「拿得到能力才出现」：站外和 PC 上保持隐藏，
+         不留一个点了没反应的按钮（和排行榜入口一个规矩） -->
+    <button class="btn minor hidden" id="btnScreen">屏幕方向：竖屏</button>
+  </div>
+  <div class="menu-links">
+    <!-- 排行榜依赖 Toy JS SDK，拿不到 SDK 的环境（本地开发、站外托管）保持隐藏，
+         不留一个点了没反应的按钮 -->
+    <button class="btn minor hidden" id="btnRank">🏆 排行榜</button>
+    <button class="btn minor" id="btnHelp">操作说明</button>
+  </div>
   <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
 </div>
 

@@ -84,6 +84,9 @@
   #menu::after { content:""; position:absolute; inset:0; pointer-events:none;
     box-shadow:inset 0 0 180px rgba(0,0,0,.85); }
   #menu > * { position:relative; z-index:1; }
+  /* 上一条会把装饰僵尸也改成 relative，四个 emoji 就挤进排版流里、把整块内容往下顶（首页要滚动的主因）；
+     装饰层必须脱离文档流 */
+  #menu > .float-z { position:absolute; }
   #menu h1.logo { animation: logoIn .7s cubic-bezier(.2,1.5,.4,1) both; }
   #menu h1.logo span { animation: flick 3.6s infinite; }
   @keyframes logoIn { from { transform:translateY(-46px) scale(.82); opacity:0; } }
@@ -99,6 +102,58 @@
     border-color:#5e8795; animation:none; }
   #btnOnline:hover { background:linear-gradient(180deg,#3b6675,#223b45); border-color:#86c2d4; }
   @keyframes btnPulse { 50% { box-shadow:0 5px 0 #000, 0 0 28px rgba(224,60,49,.55); } }
+  /* ---------- 主菜单布局：一屏放完，不用滚 ---------- */
+  .menu-play { display:flex; gap:14px; justify-content:center; margin-top:26px; width:min(560px,100%); }
+  .menu-play .btn { flex:1 1 0; margin:0; padding:14px 10px; white-space:nowrap; }
+  #menu #btnOnline { margin-top:0; }
+  .menu-set { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px;
+    width:min(680px,100%); margin-top:22px; padding-top:18px; border-top:1px solid rgba(87,80,63,.45); }
+  .menu-set .btn.minor, .menu-links .btn.minor { margin:0; padding:10px 8px; font-size:14px;
+    letter-spacing:.08em; text-indent:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    box-shadow:0 3px 0 #000; }
+  .menu-links { display:flex; gap:10px; justify-content:center; margin-top:12px; }
+  .menu-links .btn.minor { padding:7px 22px; font-size:13px; background:transparent; border-width:2px; }
+  #menu .tip { margin-top:16px; }
+  /* 手机竖屏：设置两列，徽章收小排一行 */
+  @media (max-width:560px) {
+    .badges { gap:6px; margin-top:14px; flex-wrap:nowrap; }
+    .badge { padding:4px 8px; font-size:11px; letter-spacing:.06em; }
+    .menu-play { margin-top:20px; gap:10px; }
+    .menu-play .btn { padding:13px 4px; font-size:17px; letter-spacing:.16em; text-indent:.16em; }
+    .menu-set { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:16px; padding-top:14px; }
+    .menu-set .btn.minor { font-size:13px; padding:10px 4px; letter-spacing:.04em; }
+    #menu .tip { font-size:11.5px; letter-spacing:.06em; line-height:1.7; }
+  }
+  /* 中等高度（1366×768 笔记本、小屏手机竖屏）：收紧纵向间距 */
+  @media (max-height:820px) {
+    #menu h1.logo { font-size:min(11vw,60px); }
+    .badges { margin-top:14px; }
+    .menu-play { margin-top:18px; }
+    .menu-set { margin-top:16px; padding-top:14px; }
+    #menu .tip { margin-top:12px; }
+  }
+  @media (max-height:700px) {
+    #menu h1.logo { font-size:min(10vw,50px); }
+    .badges { margin-top:10px; }
+    .menu-play { margin-top:14px; }
+    #menu .sub { margin-top:6px; }
+    .menu-play .btn { padding:11px 4px; }
+    .menu-set .btn.minor { padding:8px 4px; }
+    .menu-set { gap:7px; margin-top:12px; padding-top:12px; }
+  }
+  /* 矮屏（手机横屏、小窗口）：标语和底部提示让位，设置三列 */
+  @media (max-height:520px) {
+    #menu h1.logo { font-size:min(9vh,44px); }
+    #menu .sub { margin-top:4px; font-size:12px; }
+    #menu .badges, #menu .tip, #menu .float-z { display:none; }
+    .menu-play { margin-top:12px; width:min(520px,100%); }
+    .menu-play .btn { padding:10px 6px; font-size:17px; }
+    .menu-set { grid-template-columns:repeat(3,minmax(0,1fr)); width:min(640px,100%);
+      gap:8px; margin-top:12px; padding-top:10px; }
+    .menu-set .btn.minor { padding:8px 4px; font-size:12.5px; }
+    .menu-links { margin-top:8px; }
+    .menu-links .btn.minor { padding:5px 18px; font-size:12px; }
+  }
   .float-z { position:absolute; font-size:54px; opacity:.11; filter:grayscale(.35);
     animation:drift 11s ease-in-out infinite; pointer-events:none; user-select:none; z-index:0 !important; }
   .z1 { left:8%;  top:18%;    animation-delay:0s; }
