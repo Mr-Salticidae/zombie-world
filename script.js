@@ -1221,6 +1221,9 @@ function touchStartBody(e){
     // 左半边不能这么干——手机竖屏时拇指自然落在屏幕下沿，那正好压着武器栏，
     // 于是每次按下都变成「换枪」，人一步都走不了。左边改成先当摇杆，抬手时再结算轻点
     if (slot >= 0 && !left && selectWeapon(slot)) continue;
+    // 左拇指已经在走位时，再落下的手指不可能是摇杆——它点在武器栏上就是要换枪，立刻换。
+    // 以前这根手指两头都不接（摇杆槽被占、又不在右半边），所以只能停下来才换得了枪
+    if (slot >= 0 && left && tMove.id !== null){ selectWeapon(slot); continue; }
     if (left && tMove.id === null){
       tMove = { id:t.identifier, ox:t.clientX, oy:t.clientY, vx:0, vy:0,
                 slot, t0:performance.now() };
@@ -1282,8 +1285,23 @@ addEventListener('touchcancel', e => {
   try { releaseTouches(e); } catch (err){ noteTouchError(err); }
   resetSticks();
 }, { passive:true });
-swapBtn.addEventListener('click', () => { if (state==='play') cycleWeapon(1); });
-ultBtn.addEventListener('click', () => { if (state==='play') requestUlt(); });
+swapBtn.addEventListener('click', () => { if (!recentTouchTap() && state==='play') cycleWeapon(1); });
+ultBtn.addEventListener('click', () => { if (!recentTouchTap() && state==='play') requestUlt(); });
+/* 「边走边换枪」：click 是浏览器在一次单指轻点之后合成的，左手拇指还按着摇杆时
+   屏幕上是两根手指，iOS / WKWebView 干脆不合成 click，摇杆的 touchmove 又被我们
+   preventDefault，于是按钮只有停下来松开摇杆才响。按钮自己在 touchstart 里结算，
+   不再等 click；随后那个合成 click（单指时仍会来）用时间戳挡掉，免得一下切两把。 */
+let lastBtnTouch = 0;
+function recentTouchTap(){ return performance.now() - lastBtnTouch < 800; }
+function onBtnTouch(act){
+  return e => {
+    lastBtnTouch = performance.now();
+    if (e.cancelable) e.preventDefault();
+    try { if (state === 'play') act(); } catch (err){ noteTouchError(err); }
+  };
+}
+swapBtn.addEventListener('touchstart', onBtnTouch(() => cycleWeapon(1)), { passive:false });
+ultBtn.addEventListener('touchstart', onBtnTouch(() => requestUlt()), { passive:false });
 pauseBtn.addEventListener('click', () => {
   if (multiplayerActive()) return;
   if (state === 'play') setScreen('pause');
