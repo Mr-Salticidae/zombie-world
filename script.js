@@ -537,6 +537,9 @@ let netMode = 'solo';          // solo | host | guest
 let netInputs = new Map();
 let localInputSeq = 0, localUltSeq = 0, localDesiredWeapon = null, lastInputSent = 0;
 let snapshotTick = 0, lastSnapshotSent = 0;
+let netIdSeq = 0;              // 房主给实体发的稳定编号，客端靠它把前后两份快照里的同一只怪对上
+// 客端本机预测历史：每帧记下「发出第 seq 条输入后自己在哪」，快照回来按房主处理到的 inputAt 对账
+let localPosHistory = [], localCorrX = 0, localCorrY = 0;
 let lastGuestSnapshotAt = 0;
 let restoringSavedSession = false;
 
@@ -642,6 +645,7 @@ function reset(roster){
   player = players.get(localId) || players.values().next().value;
   netInputs = new Map();
   localInputSeq = 0; localUltSeq = 0; localDesiredWeapon = null; snapshotTick = 0;
+  localPosHistory = []; localCorrX = 0; localCorrY = 0;
   cam = { x: WW/2 - VW/2, y: WH/2 - VH/2 };
   zombies = []; devils = []; bosses = []; bullets = []; grenades = []; rockets = [];
   fireballs = []; particles = []; pickups = []; banners = []; hazards = [];
@@ -1927,8 +1931,10 @@ function update(dt, now){
 // 快照每秒 20 次、每个实体十几个字段，原样发 17 位小数的浮点会把房主上行带宽撑爆，
 // 发送缓冲越积越多，延迟就涨到好几秒。只有房主跑 AI，绕障/归属字段客端用不到，直接不发；
 // 数字统一保留两位小数，坐标、计时器、朝向的精度都足够渲染。
-const NET_SKIP_KEYS = new Set(['T','target','cv','chk','stuck','side','lastD','lastHitBy']);
+const NET_SKIP_KEYS = new Set(['T','target','cv','chk','stuck','side','lastD','lastHitBy',
+  'navT','_ax','_ay','_aw','_at','_vx','_vy','_vw']);
 function copyScalars(entity){
+  if (entity.nid === undefined) entity.nid = ++netIdSeq;
   const out = {};
   for (const [key, value] of Object.entries(entity)){
     if (NET_SKIP_KEYS.has(key)) continue;
@@ -1998,6 +2004,14 @@ function applyNetworkState(snapshot){
     buildGround(); refreshMapSel();
   }
   const previousLocal = player && player.id === net.selfId ? player : null;
+  // 记下上一份快照里每个活动实体「当前画在哪」，新快照按编号对上后从这里平滑过去
+  const smoothPrev = new Map();
+  const remember = (tag, list) => {
+    for (const e of list || []) if (e && e.nid !== undefined) smoothPrev.set(tag + e.nid, e);
+  };
+  remember('z', zombies); remember('d', devils); remember('b', bosses);
+  remember('u', bullets); remember('g', grenades); remember('r', rockets); remember('f', fireballs);
+  for (const p of players.values()) if (p !== previousLocal) smoothPrev.set('p' + p.id, p);
   const bannerKey = banner => [
     banner && banner.text,
     banner && banner.sub,
@@ -2042,11 +2056,24 @@ function applyNetworkState(snapshot){
   if (player){
     if (previousLocal && previousLocal.alive !== false && previousLocal.hp > 0 &&
         player.alive !== false && player.hp > 0){
-      const correction = Math.hypot(previousLocal.x-player.x, previousLocal.y-player.y);
-      if (correction < 140){
-        player.x = player.x*.35 + previousLocal.x*.65;
-        player.y = player.y*.35 + previousLocal.y*.65;
+      // 对账：房主给的位置对应它处理到的第 inputAt 条输入，拿它和本机发那条输入时的预测比，
+      // 差多少就在接下来几帧里慢慢补上。原来是每份快照都把人往（落后一个往返的）权威位置
+      // 拽 35%，跑动时每 50ms 往回一顿，自己的角色就一卡一卡的。
+      const authX = player.x, authY = player.y;
+      const past = localPosHistory.find(h => h.seq === player.inputAt);
+      player.x = previousLocal.x; player.y = previousLocal.y;
+      const ex = past ? authX - past.x : authX - player.x;
+      const ey = past ? authY - past.y : authY - player.y;
+      const err = Math.hypot(ex, ey);
+      if (err > 140){                          // 被击退/复活之类的大跳变，直接对齐
+        player.x = authX; player.y = authY;
+        localPosHistory = []; localCorrX = localCorrY = 0;
+      } else if (err > (past ? 2 : 24)){       // 没有历史可比时权威位置本身就落后，死区放宽
+        localCorrX = ex; localCorrY = ey;
+      } else {
+        localCorrX = localCorrY = 0;
       }
+      localPosHistory = localPosHistory.filter(h => h.seq >= player.inputAt);
       if (localTarget) player.target = localTarget;
     } else {
       player.target = null;
@@ -2093,6 +2120,10 @@ function applyNetworkState(snapshot){
     return h;
   });
   banners = array('banners', 40);
+  const carry = (tag, list) => { for (const e of list) netSmoothCarry(smoothPrev.get(tag + e.nid), e); };
+  carry('z', zombies); carry('d', devils); carry('b', bosses);
+  carry('u', bullets); carry('g', grenades); carry('r', rockets); carry('f', fireballs);
+  for (const p of players.values()) if (p !== player) netSmoothCarry(smoothPrev.get('p' + p.id), p);
   if (player && banners.some(banner =>
     !previousBannerKeys.has(bannerKey(banner)) &&
     typeof banner.text === 'string' &&
@@ -2125,6 +2156,40 @@ function applyNetworkState(snapshot){
   }
 }
 
+/* ---------- 客端平滑：快照之间的移动外推 + 误差追赶 ----------
+   _ax/_ay/_aw 是最近一份快照里的权威位置和走路动画相位，_at 是那份快照的房主时间，
+   _vx/_vy/_vw 是按前后两份快照估出来的速度（弹体直接用自带的 vx/vy）。 */
+function netSmoothCarry(prev, e){
+  e._ax = e.x; e._ay = e.y; e._aw = Number.isFinite(e.walk) ? e.walk : undefined; e._at = time;
+  const ownV = Number.isFinite(e.vx) && Number.isFinite(e.vy);
+  e._vx = ownV ? e.vx : 0; e._vy = ownV ? e.vy : 0; e._vw = 0;
+  if (!prev || prev._at === undefined) return;
+  const span = time - prev._at;
+  if (span > .001 && span < .5){
+    if (!ownV){ e._vx = (e._ax - prev._ax)/span; e._vy = (e._ay - prev._ay)/span; }
+    if (e._aw !== undefined && prev._aw !== undefined) e._vw = Math.max(0, (e._aw - prev._aw)/span);
+  } else if (!ownV){
+    e._vx = prev._vx || 0; e._vy = prev._vy || 0; e._vw = prev._vw || 0;
+  }
+  // 画面位置沿用上一帧画出来的地方，之后每帧再追向权威位置；离太远（瞬移/冲锋撞墙）就直接对齐
+  if (Math.hypot(prev.x - e._ax, prev.y - e._ay) < 120){
+    e.x = prev.x; e.y = prev.y;
+    if (e._aw !== undefined && Number.isFinite(prev.walk)) e.walk = prev.walk;
+  }
+}
+function netSmoothStep(e, dt){
+  if (e._at === undefined) return;
+  const ahead = Math.min(.2, Math.max(0, time - e._at));   // 最多外推 0.2 秒，断流时别让怪自己走穿墙
+  const k = Math.min(1, dt*12);
+  if (ahead < .2){ e.x += e._vx*dt; e.y += e._vy*dt; }
+  e.x += (e._ax + e._vx*ahead - e.x)*k;
+  e.y += (e._ay + e._vy*ahead - e.y)*k;
+  if (e._aw !== undefined){
+    e.walk += e._vw*dt;
+    e.walk += (e._aw + e._vw*ahead - e.walk)*k;
+  }
+}
+
 function updateGuest(dt, now){
   time += dt; frameN++;
   if (!player) return;
@@ -2141,16 +2206,26 @@ function updateGuest(dt, now){
       player.x += mx*spd*dt; player.y += my*spd*dt; player.walk += dt*11;
       player.moving = true; collide(player);
     } else player.moving = false;
+    // 把对账出来的误差摊到约 0.15 秒里补，历史记录一起平移，免得下一份快照重复补
+    if (localCorrX || localCorrY){
+      const k = Math.min(1, dt*8), cx = localCorrX*k, cy = localCorrY*k;
+      player.x += cx; player.y += cy; localCorrX -= cx; localCorrY -= cy;
+      for (const h of localPosHistory){ h.x += cx; h.y += cy; }
+      if (Math.abs(localCorrX) + Math.abs(localCorrY) < .3) localCorrX = localCorrY = 0;
+      collide(player);
+    }
   }
+  localPosHistory.push({ seq:input.seq, x:player.x, y:player.y });
+  if (localPosHistory.length > 120) localPosHistory.shift();
   if (now - lastInputSent >= 33){
     lastInputSent = now;
     net.sendInput(input);
   }
-  // 根据速度外推高速弹体，下一份权威快照会纠正误差。
-  for (const b of bullets){ b.x += b.vx*dt; b.y += b.vy*dt; }
-  for (const g of grenades){ g.x += g.vx*dt; g.y += g.vy*dt; }
-  for (const r of rockets){ r.x += r.vx*dt; r.y += r.vy*dt; }
-  for (const f of fireballs){ f.x += f.vx*dt; f.y += f.vy*dt; }
+  // 快照每秒只来 20 份：两份之间按速度外推，再把画面位置平滑地追向外推后的权威位置
+  for (const list of [zombies, devils, bosses, bullets, grenades, rockets, fireballs]){
+    for (const e of list) netSmoothStep(e, dt);
+  }
+  for (const p of players.values()) if (p !== player) netSmoothStep(p, dt);
   const focus = player.alive !== false ? player : (livingPlayers()[0] || player);
   const tx = focus.x - VW/2, ty = focus.y - VH/2;
   cam.x += (tx-cam.x)*Math.min(1,dt*7);
