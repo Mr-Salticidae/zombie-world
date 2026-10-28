@@ -689,7 +689,9 @@ function startWave(){
     cool2: 3 + Math.random()*2,     // 冲锋
     cool3: 6,                       // 震地
     cool4: 5,                       // 毒吐/弹幕
-    cool5: 8 });                    // 毒池
+    cool5: 8,                       // 毒池
+    summonLeft: 5 + tier,           // 召唤次数上限，见下方召唤处
+    navT:0 });                      // 寻路刷新计时，见 bossSteer
   setTimeout(() => AC && sfx('roar'), 500);
   const skills = Object.keys(T.sk).map(k => SK_NAMES[k]).join('/');
   banners.push({ text:'BOSS · ' + T.name, sub:'技能：' + skills, life:2.8 });
@@ -977,6 +979,106 @@ function hitPillar(x, y, r){
     if (dx*dx + dy*dy < (p.r + (r||0)) * (p.r + (r||0))) return true;
   }
   return false;
+}
+// Boss 寻路。Boss 体型大、柱缝窄，只靠「卡住就切向绕」会钻进三根柱子围成的凹口出不来，
+// 或者被玩家引到柱子背后顶一辈子。这里按体型把世界切成 20px 格子，标出圆能站下的格，
+// 从目标附近的可站格做 BFS 得到距离场，Boss 沿距离递减走，并尽量直奔看得见的最远格子。
+// 目标躲在 Boss 根本挤不进去的缝里时，种子会向外扩，Boss 就停在能到的最近处。
+const NAV_CELL = 20, NAV_W = Math.ceil(WW/NAV_CELL), NAV_H = Math.ceil(WH/NAV_CELL);
+const navWalkCache = new Map();
+function navWalkable(r){
+  const key = Math.ceil(r);
+  let grid = navWalkCache.get(key);
+  if (grid) return grid;
+  grid = new Uint8Array(NAV_W*NAV_H);
+  for (let j = 0; j < NAV_H; j++) for (let i = 0; i < NAV_W; i++){
+    const x = (i+.5)*NAV_CELL, y = (j+.5)*NAV_CELL;
+    grid[j*NAV_W+i] = x >= key && y >= key && x <= WW-key && y <= WH-key &&
+      !hitPillar(x, y, key+2) ? 1 : 0;
+  }
+  navWalkCache.set(key, grid);
+  return grid;
+}
+// 半径 r 的圆沿线段扫过去会不会蹭到石柱
+function sweepClear(x0, y0, x1, y1, r){
+  const vx = x1-x0, vy = y1-y0, len2 = vx*vx + vy*vy || 1;
+  for (const p of pillars){
+    const t = Math.max(0, Math.min(1, ((p.x-x0)*vx + (p.y-y0)*vy) / len2));
+    const cx = x0 + vx*t - p.x, cy = y0 + vy*t - p.y, min = p.r + r;
+    if (cx*cx + cy*cy < min*min) return false;
+  }
+  return true;
+}
+function navCellOf(x, y){
+  const i = Math.max(0, Math.min(NAV_W-1, (x/NAV_CELL)|0));
+  const j = Math.max(0, Math.min(NAV_H-1, (y/NAV_CELL)|0));
+  return j*NAV_W + i;
+}
+function navBuild(o, tx, ty){
+  const walk = navWalkable(o.r), N = NAV_W*NAV_H;
+  const dist = o.navDist || (o.navDist = new Int16Array(N));
+  const q = o.navQ || (o.navQ = new Int32Array(N));
+  dist.fill(-1);
+  let head = 0, tail = 0;
+  for (let rad = o.r + 40; tail === 0 && rad <= 600; rad += 60){
+    const i0 = Math.max(0, ((tx-rad)/NAV_CELL)|0), i1 = Math.min(NAV_W-1, ((tx+rad)/NAV_CELL)|0);
+    const j0 = Math.max(0, ((ty-rad)/NAV_CELL)|0), j1 = Math.min(NAV_H-1, ((ty+rad)/NAV_CELL)|0);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++){
+      const c = j*NAV_W + i;
+      if (!walk[c] || dist[c] >= 0) continue;
+      if (Math.hypot((i+.5)*NAV_CELL - tx, (j+.5)*NAV_CELL - ty) > rad) continue;
+      dist[c] = 0; q[tail++] = c;
+    }
+  }
+  while (head < tail){
+    const c = q[head++], i = c % NAV_W, j = (c / NAV_W)|0, nd = dist[c] + 1;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++){
+      if (!di && !dj) continue;
+      const ni = i+di, nj = j+dj;
+      if (ni < 0 || nj < 0 || ni >= NAV_W || nj >= NAV_H) continue;
+      const n = nj*NAV_W + ni;
+      if (!walk[n] || dist[n] >= 0) continue;
+      if (di && dj && (!walk[j*NAV_W+ni] || !walk[nj*NAV_W+i])) continue;   // 不切柱角
+      dist[n] = nd; q[tail++] = n;
+    }
+  }
+}
+// 返回朝向下一个路点的单位向量
+function bossSteer(o, tx, ty, dt){
+  const ddx = tx-o.x, ddy = ty-o.y, dd = Math.hypot(ddx, ddy) || 1;
+  if (sweepClear(o.x, o.y, tx, ty, o.r)) return [ddx/dd, ddy/dd];
+  o.navT = (o.navT || 0) - dt;
+  if (o.navT <= 0 || !o.navDist){ o.navT = .4; navBuild(o, tx, ty); }
+  const dist = o.navDist;
+  // 自己所在格可能因为贴着柱子不算可站，就从周围 5×5 里挑距离最小的起步
+  const c0 = navCellOf(o.x, o.y), i0 = c0 % NAV_W, j0 = (c0 / NAV_W)|0;
+  let c = -1;
+  for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++){
+    const ni = i0+di, nj = j0+dj;
+    if (ni < 0 || nj < 0 || ni >= NAV_W || nj >= NAV_H) continue;
+    const n = nj*NAV_W + ni;
+    if (dist[n] >= 0 && (c < 0 || dist[n] < dist[c])) c = n;
+  }
+  // 已经到了目标跟前（玩家贴着柱子时整条直线扫不过去），最后一步直接顶上去，交给碰撞滑开
+  if (c < 0 || dist[c] === 0) return [ddx/dd, ddy/dd];
+  let wx = (c % NAV_W + .5)*NAV_CELL, wy = (((c / NAV_W)|0) + .5)*NAV_CELL;
+  for (let step = 0; step < 10 && dist[c] > 0; step++){
+    const i = c % NAV_W, j = (c / NAV_W)|0;
+    let next = -1;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++){
+      const ni = i+di, nj = j+dj;
+      if ((!di && !dj) || ni < 0 || nj < 0 || ni >= NAV_W || nj >= NAV_H) continue;
+      const n = nj*NAV_W + ni;
+      if (dist[n] >= 0 && dist[n] < dist[c] && (next < 0 || dist[n] < dist[next])) next = n;
+    }
+    if (next < 0) break;
+    c = next;
+    const cx = (c % NAV_W + .5)*NAV_CELL, cy = (((c / NAV_W)|0) + .5)*NAV_CELL;
+    if (!sweepClear(o.x, o.y, cx, cy, o.r - 2)) break;
+    wx = cx; wy = cy;
+  }
+  const wl = Math.hypot(wx-o.x, wy-o.y);
+  return wl > 2 ? [(wx-o.x)/wl, (wy-o.y)/wl] : [ddx/dd, ddy/dd];
 }
 function losBlocked(x0, y0, x1, y1){
   const steps = Math.ceil(Math.hypot(x1-x0, y1-y0) / 18);
@@ -1605,13 +1707,18 @@ function update(dt, now){
     const dx = target.x - b.x, dy = target.y - b.y, d = Math.hypot(dx, dy)||1;
     b.fx = dx/d; b.fy = dy/d;
     if (b.mode === 'walk'){
-      b.x += dx/d * T.spd * spdMul * dt; b.y += dy/d * T.spd * spdMul * dt;
+      // 原来 Boss 只会直冲，玩家躲到石柱后面它就顶着柱子推一辈子，波次永远结束不了，
+      // 只剩它的召唤源源不断送分。现在走 bossSteer 寻路绕柱。
+      const [sx, sy] = bossSteer(b, target.x, target.y, dt);
+      b.x += sx * T.spd * spdMul * dt; b.y += sy * T.spd * spdMul * dt;
       b.walk += dt * 6 * spdMul;
       collide(b);
       b.cool1 -= dt; b.cool2 -= dt; b.cool3 -= dt; b.cool4 -= dt; b.cool5 -= dt;
-      // 召唤增援（博士召唤精英）。带场上数量上限：不然留着 Boss 不打就是一台
-      // 永动刷怪机，可以躲在角落无限刷连击和分数。
-      if (S.summon && b.cool1 <= 0 && zombies.length < 26){
+      // 召唤增援（博士召唤精英）。场上数量上限只能限住同屏怪数，限不住总量——
+      // 躲在大 Boss 进不去的石柱缝里（博士体型过不了窄口）照样能无限刷分，
+      // 所以每只 Boss 还有总召唤次数，用完就只剩本体和其他技能。
+      if (S.summon && b.summonLeft > 0 && b.cool1 <= 0 && zombies.length < 26){
+        b.summonLeft--;
         b.cool1 = (8 + Math.random()*3) * cdMul;
         const n = Math.min(3 + b.tier + (b.rage ? 2 : 0), 26 - zombies.length);
         for (let k = 0; k < n; k++){
@@ -1817,11 +1924,16 @@ function update(dt, now){
   }
 }
 
+// 快照每秒 20 次、每个实体十几个字段，原样发 17 位小数的浮点会把房主上行带宽撑爆，
+// 发送缓冲越积越多，延迟就涨到好几秒。只有房主跑 AI，绕障/归属字段客端用不到，直接不发；
+// 数字统一保留两位小数，坐标、计时器、朝向的精度都足够渲染。
+const NET_SKIP_KEYS = new Set(['T','target','cv','chk','stuck','side','lastD','lastHitBy']);
 function copyScalars(entity){
   const out = {};
   for (const [key, value] of Object.entries(entity)){
-    if (key === 'T' || key === 'target' || key === 'cv') continue;
-    if (value === null || ['number','string','boolean'].includes(typeof value)) out[key] = value;
+    if (NET_SKIP_KEYS.has(key)) continue;
+    if (typeof value === 'number') out[key] = Number.isFinite(value) ? Math.round(value*100)/100 : value;
+    else if (value === null || typeof value === 'string' || typeof value === 'boolean') out[key] = value;
   }
   return out;
 }

@@ -17,6 +17,8 @@ const DEFAULT_RATE_LIMIT_MAX_MESSAGES = 600;
 const DEFAULT_MAX_SNAPSHOT_BYTES = 256 * 1024;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 40;
 const DEFAULT_MAX_BUFFERED_BYTES = 1024 * 1024;
+// 快照是全量状态，客端缓冲里已经积了旧快照就直接丢新帧，免得排队把延迟越拖越长。
+const DEFAULT_MAX_SNAPSHOT_BUFFERED_BYTES = 64 * 1024;
 const DEFAULT_MAX_CONNECTIONS = 128;
 const DEFAULT_MAX_ROOMS = 64;
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -361,6 +363,9 @@ export function createGameServer(options = {}) {
   const maxSnapshotBytes = options.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES;
   const snapshotIntervalMs = options.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
   const maxBufferedBytes = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
+  const maxSnapshotBufferedBytes = options.maxSnapshotBufferedBytes
+    ?? DEFAULT_MAX_SNAPSHOT_BUFFERED_BYTES;
+  const perMessageDeflate = options.perMessageDeflate ?? true;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const maxRooms = options.maxRooms ?? DEFAULT_MAX_ROOMS;
   const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins);
@@ -383,6 +388,7 @@ export function createGameServer(options = {}) {
     maxSnapshotBytes,
     snapshotIntervalMs,
     maxBufferedBytes,
+    maxSnapshotBufferedBytes,
     maxConnections,
     maxRooms,
   })) {
@@ -398,6 +404,10 @@ export function createGameServer(options = {}) {
     noServer: true,
     clientTracking: true,
     maxPayload: maxMessageBytes,
+    // 快照 JSON 键名大量重复，压缩后体积通常只剩几分之一；低压缩级别几乎不占 CPU。
+    perMessageDeflate: perMessageDeflate
+      ? { threshold: 1024, zlibDeflateOptions: { level: 1 } }
+      : false,
   });
   let heartbeatTimer = null;
   let listening = false;
@@ -717,7 +727,7 @@ export function createGameServer(options = {}) {
       room,
       snapshot,
       (candidate) => candidate.id !== room.hostId,
-      { dropIfBackpressured:true, maxBufferedBytes },
+      { dropIfBackpressured:true, maxBufferedBytes:maxSnapshotBufferedBytes },
     );
   }
 
@@ -998,6 +1008,8 @@ export function createGameServer(options = {}) {
       maxSnapshotBytes,
       snapshotIntervalMs,
       maxBufferedBytes,
+      maxSnapshotBufferedBytes,
+      perMessageDeflate,
       maxConnections,
       maxRooms,
       allowedOrigins: allowedOrigins ? [...allowedOrigins] : null,

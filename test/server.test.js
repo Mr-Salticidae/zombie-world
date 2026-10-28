@@ -395,3 +395,35 @@ test("removes timed-out guests and closes an active room after host timeout", as
   await delay(10);
   assert.equal(fixture.server.rooms.has(second.hostState.code), false);
 });
+
+test("negotiates permessage-deflate so large snapshots are compressed on the wire", async (t) => {
+  const fixture = await startFixture();
+  t.after(() => fixture.close());
+  const peer = await fixture.peer();
+  assert.match(peer.ws.extensions, /permessage-deflate/u);
+});
+
+test("drops snapshots instead of queueing them behind a backpressured guest", async (t) => {
+  const fixture = await startFixture({
+    snapshotIntervalMs: 1,
+    maxSnapshotBufferedBytes: 1024,
+  });
+  t.after(() => fixture.close());
+  const { host, guest } = await createAndJoin(fixture);
+  await readyAndStart(host, guest);
+
+  const room = fixture.server.rooms.values().next().value;
+  const guestSocket = [...room.players.values()].find((player) => player.id !== room.hostId).ws;
+  Object.defineProperty(guestSocket, "bufferedAmount", { value: 4096, configurable: true });
+  host.send({ type:"snapshot", tick:1, state:{ players:[] } });
+  await assert.rejects(
+    guest.waitFor((message) => message.type === "snapshot" && message.tick === 1, 120),
+    /Timed out/u,
+  );
+  assert.equal(guestSocket.readyState, WebSocket.OPEN);
+
+  delete guestSocket.bufferedAmount;
+  await delay(5);
+  host.send({ type:"snapshot", tick:2, state:{ players:[] } });
+  await guest.waitFor((message) => message.type === "snapshot" && message.tick === 2);
+});
