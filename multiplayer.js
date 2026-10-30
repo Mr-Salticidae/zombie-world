@@ -8,6 +8,7 @@
 (function exposeMultiplayerClient(global){
   const SESSION_KEY = "zombie-world-multiplayer-session";
   const SERVER_KEY = "zombie-world-multiplayer-server";
+  const SNAPSHOT_MAX_BUFFERED_BYTES = 64 * 1024;
 
   function storageGet(kind, key){
     try { return global[kind] ? global[kind].getItem(key) : null; }
@@ -452,6 +453,8 @@
     }
 
     sendSnapshot(snapshot){
+      // 上行跟不上时丢掉这一帧：快照是全量状态，排队发旧快照只会让延迟越滚越大
+      if (this.ws && this.ws.bufferedAmount > SNAPSHOT_MAX_BUFFERED_BYTES) return false;
       return this.send("snapshot", snapshot);
     }
 

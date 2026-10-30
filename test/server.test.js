@@ -415,3 +415,28 @@ test("exposes /healthz so a deploy can be verified in one line", async () => {
     await fixture.close();
   }
 });
+
+test("drops snapshots instead of queueing them behind a backpressured guest", async (t) => {
+  const fixture = await startFixture({
+    snapshotIntervalMs: 1,
+    maxSnapshotBufferedBytes: 1024,
+  });
+  t.after(() => fixture.close());
+  const { host, guest } = await createAndJoin(fixture);
+  await readyAndStart(host, guest);
+
+  const room = fixture.server.rooms.values().next().value;
+  const guestSocket = [...room.players.values()].find((player) => player.id !== room.hostId).ws;
+  Object.defineProperty(guestSocket, "bufferedAmount", { value: 4096, configurable: true });
+  host.send({ type:"snapshot", tick:1, state:{ players:[] } });
+  await assert.rejects(
+    guest.waitFor((message) => message.type === "snapshot" && message.tick === 1, 120),
+    /Timed out/u,
+  );
+  assert.equal(guestSocket.readyState, WebSocket.OPEN);
+
+  delete guestSocket.bufferedAmount;
+  await delay(5);
+  host.send({ type:"snapshot", tick:2, state:{ players:[] } });
+  await guest.waitFor((message) => message.type === "snapshot" && message.tick === 2);
+});

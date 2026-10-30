@@ -758,6 +758,9 @@ let netInputs = new Map();
 let localInputSeq = 0, localUltSeq = 0, localDesiredWeapon = null, lastInputSent = 0;
 let localBuySeq = 0, localBuyId = '';        // 客机的购买请求：房主权威结账
 let snapshotTick = 0, lastSnapshotSent = 0;
+let netIdSeq = 0;              // 房主给实体发的稳定编号，客端靠它把前后两份快照里的同一只怪对上
+// 客端本机预测历史：每帧记下「发出第 seq 条输入后自己在哪」，快照回来按房主处理到的 inputAt 对账
+let localPosHistory = [], localCorrX = 0, localCorrY = 0;
 let lastGuestSnapshotAt = 0;
 let restoringSavedSession = false;
 
@@ -896,6 +899,7 @@ function reset(roster){
   player = players.get(localId) || players.values().next().value;
   netInputs = new Map();
   localInputSeq = 0; localUltSeq = 0; localDesiredWeapon = null; snapshotTick = 0;
+  localPosHistory = []; localCorrX = 0; localCorrY = 0;
   localBuySeq = 0; localBuyId = '';
   cam = { x: WW/2 - VW/2, y: WH/2 - VH/2 };
   zombies = []; devils = []; bosses = []; bullets = []; grenades = []; rockets = [];
@@ -945,7 +949,9 @@ function startWave(){
     cool2: 3 + Math.random()*2,     // 冲锋
     cool3: 6,                       // 震地
     cool4: 5,                       // 毒吐/弹幕
-    cool5: 8 });                    // 毒池
+    cool5: 8,                       // 毒池
+    summonLeft: 5 + tier,           // 召唤次数上限，见下方召唤处
+    navT:0 });                      // 寻路刷新计时，见 bossSteer
   setTimeout(() => AC && sfx('roar'), 500);
   const skills = Object.keys(T.sk).map(k => SK_NAMES[k]).join('/');
   banners.push({ text:'BOSS · ' + T.name, sub:'技能：' + skills, life:2.8 });
@@ -1337,6 +1343,96 @@ function hitPillar(x, y, r){
     if (dx*dx + dy*dy < (p.r + (r||0)) * (p.r + (r||0))) return true;
   }
   return false;
+}
+// Boss 寻路。Boss 体型大、柱缝窄，只靠「卡住就切向绕」会钻进三根柱子围成的凹口出不来，
+// 或者被玩家引到柱子背后顶一辈子。这里按体型把世界切成 20px 格子，标出圆能站下的格，
+// 从目标附近的可站格做 BFS 得到距离场，Boss 沿距离递减走，并尽量直奔看得见的最远格子。
+// 目标躲在 Boss 根本挤不进去的缝里时，种子会向外扩，Boss 就停在能到的最近处。
+const NAV_CELL = 20, NAV_W = Math.ceil(WW/NAV_CELL), NAV_H = Math.ceil(WH/NAV_CELL);
+const navWalkCache = new Map();
+function navWalkable(r){
+  const key = Math.ceil(r);
+  let grid = navWalkCache.get(key);
+  if (grid) return grid;
+  grid = new Uint8Array(NAV_W*NAV_H);
+  for (let j = 0; j < NAV_H; j++) for (let i = 0; i < NAV_W; i++){
+    const x = (i+.5)*NAV_CELL, y = (j+.5)*NAV_CELL;
+    grid[j*NAV_W+i] = x >= key && y >= key && x <= WW-key && y <= WH-key &&
+      !hitPillar(x, y, key+2) ? 1 : 0;
+  }
+  navWalkCache.set(key, grid);
+  return grid;
+}
+function navCellOf(x, y){
+  const i = Math.max(0, Math.min(NAV_W-1, (x/NAV_CELL)|0));
+  const j = Math.max(0, Math.min(NAV_H-1, (y/NAV_CELL)|0));
+  return j*NAV_W + i;
+}
+function navBuild(o, tx, ty){
+  const walk = navWalkable(o.r), N = NAV_W*NAV_H;
+  const dist = o.navDist || (o.navDist = new Int16Array(N));
+  const q = o.navQ || (o.navQ = new Int32Array(N));
+  dist.fill(-1);
+  let head = 0, tail = 0;
+  for (let rad = o.r + 40; tail === 0 && rad <= 600; rad += 60){
+    const i0 = Math.max(0, ((tx-rad)/NAV_CELL)|0), i1 = Math.min(NAV_W-1, ((tx+rad)/NAV_CELL)|0);
+    const j0 = Math.max(0, ((ty-rad)/NAV_CELL)|0), j1 = Math.min(NAV_H-1, ((ty+rad)/NAV_CELL)|0);
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++){
+      const c = j*NAV_W + i;
+      if (!walk[c] || dist[c] >= 0) continue;
+      if (Math.hypot((i+.5)*NAV_CELL - tx, (j+.5)*NAV_CELL - ty) > rad) continue;
+      dist[c] = 0; q[tail++] = c;
+    }
+  }
+  while (head < tail){
+    const c = q[head++], i = c % NAV_W, j = (c / NAV_W)|0, nd = dist[c] + 1;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++){
+      if (!di && !dj) continue;
+      const ni = i+di, nj = j+dj;
+      if (ni < 0 || nj < 0 || ni >= NAV_W || nj >= NAV_H) continue;
+      const n = nj*NAV_W + ni;
+      if (!walk[n] || dist[n] >= 0) continue;
+      if (di && dj && (!walk[j*NAV_W+ni] || !walk[nj*NAV_W+i])) continue;   // 不切柱角
+      dist[n] = nd; q[tail++] = n;
+    }
+  }
+}
+// 返回朝向下一个路点的单位向量
+function bossSteer(o, tx, ty, dt){
+  const ddx = tx-o.x, ddy = ty-o.y, dd = Math.hypot(ddx, ddy) || 1;
+  if (!blockingPillar(o.x, o.y, tx, ty, o.r)) return [ddx/dd, ddy/dd];
+  o.navT = (o.navT || 0) - dt;
+  if (o.navT <= 0 || !o.navDist){ o.navT = .4; navBuild(o, tx, ty); }
+  const dist = o.navDist;
+  // 自己所在格可能因为贴着柱子不算可站，就从周围 5×5 里挑距离最小的起步
+  const c0 = navCellOf(o.x, o.y), i0 = c0 % NAV_W, j0 = (c0 / NAV_W)|0;
+  let c = -1;
+  for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++){
+    const ni = i0+di, nj = j0+dj;
+    if (ni < 0 || nj < 0 || ni >= NAV_W || nj >= NAV_H) continue;
+    const n = nj*NAV_W + ni;
+    if (dist[n] >= 0 && (c < 0 || dist[n] < dist[c])) c = n;
+  }
+  // 已经到了目标跟前（玩家贴着柱子时整条直线扫不过去），最后一步直接顶上去，交给碰撞滑开
+  if (c < 0 || dist[c] === 0) return [ddx/dd, ddy/dd];
+  let wx = (c % NAV_W + .5)*NAV_CELL, wy = (((c / NAV_W)|0) + .5)*NAV_CELL;
+  for (let step = 0; step < 10 && dist[c] > 0; step++){
+    const i = c % NAV_W, j = (c / NAV_W)|0;
+    let next = -1;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++){
+      const ni = i+di, nj = j+dj;
+      if ((!di && !dj) || ni < 0 || nj < 0 || ni >= NAV_W || nj >= NAV_H) continue;
+      const n = nj*NAV_W + ni;
+      if (dist[n] >= 0 && dist[n] < dist[c] && (next < 0 || dist[n] < dist[next])) next = n;
+    }
+    if (next < 0) break;
+    c = next;
+    const cx = (c % NAV_W + .5)*NAV_CELL, cy = (((c / NAV_W)|0) + .5)*NAV_CELL;
+    if (blockingPillar(o.x, o.y, cx, cy, o.r - 2)) break;
+    wx = cx; wy = cy;
+  }
+  const wl = Math.hypot(wx-o.x, wy-o.y);
+  return wl > 2 ? [(wx-o.x)/wl, (wy-o.y)/wl] : [ddx/dd, ddy/dd];
 }
 function losBlocked(x0, y0, x1, y1){
   const steps = Math.ceil(Math.hypot(x1-x0, y1-y0) / 18);
@@ -2207,13 +2303,18 @@ function update(dt, now){
     const dx = target.x - b.x, dy = target.y - b.y, d = Math.hypot(dx, dy)||1;
     b.fx = dx/d; b.fy = dy/d;
     if (b.mode === 'walk'){
-      b.x += dx/d * T.spd * spdMul * dt; b.y += dy/d * T.spd * spdMul * dt;
+      // 原来 Boss 只会直冲，玩家躲到石柱后面它就顶着柱子推一辈子，波次永远结束不了，
+      // 只剩它的召唤源源不断送分送金币。现在走 bossSteer 寻路绕柱。
+      const [sx, sy] = bossSteer(b, target.x, target.y, dt);
+      b.x += sx * T.spd * spdMul * dt; b.y += sy * T.spd * spdMul * dt;
       b.walk += dt * 6 * spdMul;
       collide(b);
       b.cool1 -= dt; b.cool2 -= dt; b.cool3 -= dt; b.cool4 -= dt; b.cool5 -= dt;
-      // 召唤增援（博士召唤精英）。带场上数量上限：不然留着 Boss 不打就是一台
-      // 永动刷怪机，可以躲在角落无限刷连击和分数。
-      if (S.summon && b.cool1 <= 0 && zombies.length < 26){
+      // 召唤增援（博士召唤精英）。场上数量上限只能限住同屏怪数，限不住总量——
+      // 躲在大 Boss 进不去的石柱缝里（博士体型过不了窄口）照样能无限刷分刷金币，
+      // 所以每只 Boss 还有总召唤次数，用完就只剩本体和其他技能。
+      if (S.summon && b.summonLeft > 0 && b.cool1 <= 0 && zombies.length < 26){
+        b.summonLeft--;
         b.cool1 = (8 + Math.random()*3) * cdMul;
         const n = Math.min(3 + b.tier + (b.rage ? 2 : 0), 26 - zombies.length);
         for (let k = 0; k < n; k++){
@@ -2462,8 +2563,10 @@ function update(dt, now){
 
    数字是缩放倍数：10 = 保留 1 位小数，1000 = 3 位，0 = 原样（布尔/字符串/整数）。
    坐标 1 位小数够了——世界 1920×1280，半个像素的差别看不出来；
-   朝向给 3 位，那是单位向量，再糙转身会一格一格的。 */
+   朝向给 3 位，那是单位向量，再糙转身会一格一格的。
+   nid 是稳定编号，客机靠它把前后两份快照里的同一只怪对上来做平滑（见 netSmoothCarry）。 */
 function packNet(o, spec){
+  if (spec.nid === 0 && o.nid === undefined) o.nid = ++netIdSeq;
   const out = {};
   for (const key in spec){
     const v = o[key];
@@ -2476,16 +2579,16 @@ function packNet(o, spec){
 }
 const NET_SPEC = {
   // drawZombie: x y fx fy hit walk ｜ pickAimTarget: x y r hp ｜ 血条: hp maxhp
-  zombie:   { x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
-  devil:    { x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
+  zombie:   { nid:0, x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
+  devil:    { nid:0, x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
   // drawBoss 还要 mode / rage 决定姿态与配色；tier 用来在客机侧还原 T（技能表）
-  boss:     { x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100,
+  boss:     { nid:0, x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100,
               boss:0, tier:0, mode:0, rage:0 },
   // 弹体：客机会按速度外推到下一份快照，所以 vx/vy 必须给
-  bullet:   { x:10, y:10, vx:10, vy:10, len:0, life:100, max:100, flame:0 },
-  grenade:  { x:10, y:10, vx:10, vy:10 },
-  rocket:   { x:10, y:10, vx:10, vy:10 },
-  fireball: { x:10, y:10, vx:10, vy:10, green:0 },
+  bullet:   { nid:0, x:10, y:10, vx:10, vy:10, len:0, life:100, max:100, flame:0 },
+  grenade:  { nid:0, x:10, y:10, vx:10, vy:10 },
+  rocket:   { nid:0, x:10, y:10, vx:10, vy:10 },
+  fireball: { nid:0, x:10, y:10, vx:10, vy:10, green:0 },
   // 油桶：客机的 collide 会读 x/y/r/hp，pickAimTarget 会读 fuse（点着了就不锁）
   barrel:   { x:10, y:10, r:0, hp:0, fuse:100 },
   pickup:   { x:10, y:10, type:0, life:100 },
@@ -2497,7 +2600,8 @@ const NET_SPEC = {
   player:   { id:0, name:0, slot:0, color:0, x:10, y:10, r:0, hp:10, alive:0,
               fx:1000, fy:1000, walk:10, moving:0, weapon:0, flash:100, inv:100,
               ultT:100, ultCharge:0, ultKills:0, swing:10, lastShot:0,
-              cash:0, lastUltSeq:0 },
+              cash:0, lastUltSeq:0,
+              inputAt:0 },               // 房主处理到客机第几条输入，客机拿来对账（见 applyNetworkState）
 };
 const packList = (list, spec) => list.map(o => packNet(o, spec));
 
@@ -2563,6 +2667,14 @@ function applyNetworkState(snapshot){
     buildGround(); refreshMapSel();
   }
   const previousLocal = player && player.id === net.selfId ? player : null;
+  // 记下上一份快照里每个活动实体「当前画在哪」，新快照按编号对上后从这里平滑过去
+  const smoothPrev = new Map();
+  const remember = (tag, list) => {
+    for (const e of list || []) if (e && e.nid !== undefined) smoothPrev.set(tag + e.nid, e);
+  };
+  remember('z', zombies); remember('d', devils); remember('b', bosses);
+  remember('u', bullets); remember('g', grenades); remember('r', rockets); remember('f', fireballs);
+  for (const p of players.values()) if (p !== previousLocal) smoothPrev.set('p' + p.id, p);
   const bannerKey = banner => [
     banner && banner.text,
     banner && banner.sub,
@@ -2608,11 +2720,24 @@ function applyNetworkState(snapshot){
   if (player){
     if (previousLocal && previousLocal.alive !== false && previousLocal.hp > 0 &&
         player.alive !== false && player.hp > 0){
-      const correction = Math.hypot(previousLocal.x-player.x, previousLocal.y-player.y);
-      if (correction < 140){
-        player.x = player.x*.35 + previousLocal.x*.65;
-        player.y = player.y*.35 + previousLocal.y*.65;
+      // 对账：房主给的位置对应它处理到的第 inputAt 条输入，拿它和本机发那条输入时的预测比，
+      // 差多少就在接下来几帧里慢慢补上。原来是每份快照都把人往（落后一个往返的）权威位置
+      // 拽 35%，跑动时每 50ms 往回一顿，自己的角色就一卡一卡的。
+      const authX = player.x, authY = player.y;
+      const past = localPosHistory.find(h => h.seq === player.inputAt);
+      player.x = previousLocal.x; player.y = previousLocal.y;
+      const ex = past ? authX - past.x : authX - player.x;
+      const ey = past ? authY - past.y : authY - player.y;
+      const err = Math.hypot(ex, ey);
+      if (err > 140){                          // 被击退/复活之类的大跳变，直接对齐
+        player.x = authX; player.y = authY;
+        localPosHistory = []; localCorrX = localCorrY = 0;
+      } else if (err > (past ? 2 : 24)){       // 没有历史可比时权威位置本身就落后，死区放宽
+        localCorrX = ex; localCorrY = ey;
+      } else {
+        localCorrX = localCorrY = 0;
       }
+      localPosHistory = localPosHistory.filter(h => h.seq >= player.inputAt);
       if (localTarget) player.target = localTarget;
     } else {
       player.target = null;
@@ -2664,6 +2789,10 @@ function applyNetworkState(snapshot){
     return h;
   });
   banners = array('banners', 40);
+  const carry = (tag, list) => { for (const e of list) netSmoothCarry(smoothPrev.get(tag + e.nid), e); };
+  carry('z', zombies); carry('d', devils); carry('b', bosses);
+  carry('u', bullets); carry('g', grenades); carry('r', rockets); carry('f', fireballs);
+  for (const p of players.values()) if (p !== player) netSmoothCarry(smoothPrev.get('p' + p.id), p);
   if (player && banners.some(banner =>
     !previousBannerKeys.has(bannerKey(banner)) &&
     typeof banner.text === 'string' &&
@@ -2696,6 +2825,40 @@ function applyNetworkState(snapshot){
   }
 }
 
+/* ---------- 客端平滑：快照之间的移动外推 + 误差追赶 ----------
+   _ax/_ay/_aw 是最近一份快照里的权威位置和走路动画相位，_at 是那份快照的房主时间，
+   _vx/_vy/_vw 是按前后两份快照估出来的速度（弹体直接用自带的 vx/vy）。 */
+function netSmoothCarry(prev, e){
+  e._ax = e.x; e._ay = e.y; e._aw = Number.isFinite(e.walk) ? e.walk : undefined; e._at = time;
+  const ownV = Number.isFinite(e.vx) && Number.isFinite(e.vy);
+  e._vx = ownV ? e.vx : 0; e._vy = ownV ? e.vy : 0; e._vw = 0;
+  if (!prev || prev._at === undefined) return;
+  const span = time - prev._at;
+  if (span > .001 && span < .5){
+    if (!ownV){ e._vx = (e._ax - prev._ax)/span; e._vy = (e._ay - prev._ay)/span; }
+    if (e._aw !== undefined && prev._aw !== undefined) e._vw = Math.max(0, (e._aw - prev._aw)/span);
+  } else if (!ownV){
+    e._vx = prev._vx || 0; e._vy = prev._vy || 0; e._vw = prev._vw || 0;
+  }
+  // 画面位置沿用上一帧画出来的地方，之后每帧再追向权威位置；离太远（瞬移/冲锋撞墙）就直接对齐
+  if (Math.hypot(prev.x - e._ax, prev.y - e._ay) < 120){
+    e.x = prev.x; e.y = prev.y;
+    if (e._aw !== undefined && Number.isFinite(prev.walk)) e.walk = prev.walk;
+  }
+}
+function netSmoothStep(e, dt){
+  if (e._at === undefined) return;
+  const ahead = Math.min(.2, Math.max(0, time - e._at));   // 最多外推 0.2 秒，断流时别让怪自己走穿墙
+  const k = Math.min(1, dt*12);
+  if (ahead < .2){ e.x += e._vx*dt; e.y += e._vy*dt; }
+  e.x += (e._ax + e._vx*ahead - e.x)*k;
+  e.y += (e._ay + e._vy*ahead - e.y)*k;
+  if (e._aw !== undefined){
+    e.walk += e._vw*dt;
+    e.walk += (e._aw + e._vw*ahead - e.walk)*k;
+  }
+}
+
 function updateGuest(dt, now){
   time += dt; frameN++;
   if (!player) return;
@@ -2714,16 +2877,26 @@ function updateGuest(dt, now){
       player.x += mx*spd*dt; player.y += my*spd*dt; player.walk += dt*11;
       player.moving = true; collide(player);
     } else player.moving = false;
+    // 把对账出来的误差摊到约 0.15 秒里补，历史记录一起平移，免得下一份快照重复补
+    if (localCorrX || localCorrY){
+      const k = Math.min(1, dt*8), cx = localCorrX*k, cy = localCorrY*k;
+      player.x += cx; player.y += cy; localCorrX -= cx; localCorrY -= cy;
+      for (const h of localPosHistory){ h.x += cx; h.y += cy; }
+      if (Math.abs(localCorrX) + Math.abs(localCorrY) < .3) localCorrX = localCorrY = 0;
+      collide(player);
+    }
   }
+  localPosHistory.push({ seq:input.seq, x:player.x, y:player.y });
+  if (localPosHistory.length > 120) localPosHistory.shift();
   if (now - lastInputSent >= 33){
     lastInputSent = now;
     net.sendInput(input);
   }
-  // 根据速度外推高速弹体，下一份权威快照会纠正误差。
-  for (const b of bullets){ b.x += b.vx*dt; b.y += b.vy*dt; }
-  for (const g of grenades){ g.x += g.vx*dt; g.y += g.vy*dt; }
-  for (const r of rockets){ r.x += r.vx*dt; r.y += r.vy*dt; }
-  for (const f of fireballs){ f.x += f.vx*dt; f.y += f.vy*dt; }
+  // 快照每秒只来 20 份：两份之间按速度外推，再把画面位置平滑地追向外推后的权威位置
+  for (const list of [zombies, devils, bosses, bullets, grenades, rockets, fireballs]){
+    for (const e of list) netSmoothStep(e, dt);
+  }
+  for (const p of players.values()) if (p !== player) netSmoothStep(p, dt);
   const focus = player.alive !== false ? player : (livingPlayers()[0] || player);
   const tx = focus.x - VW/2, ty = focus.y - VH/2;
   cam.x += (tx-cam.x)*Math.min(1,dt*7);

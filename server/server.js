@@ -17,6 +17,8 @@ const DEFAULT_RATE_LIMIT_MAX_MESSAGES = 600;
 const DEFAULT_MAX_SNAPSHOT_BYTES = 256 * 1024;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 40;
 const DEFAULT_MAX_BUFFERED_BYTES = 1024 * 1024;
+// 快照是全量状态，客端缓冲里已经积了旧快照就直接丢新帧，免得排队把延迟越拖越长。
+const DEFAULT_MAX_SNAPSHOT_BUFFERED_BYTES = 64 * 1024;
 const DEFAULT_MAX_CONNECTIONS = 128;
 const DEFAULT_MAX_ROOMS = 64;
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -376,6 +378,8 @@ export function createGameServer(options = {}) {
   const maxSnapshotBytes = options.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES;
   const snapshotIntervalMs = options.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
   const maxBufferedBytes = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
+  const maxSnapshotBufferedBytes = options.maxSnapshotBufferedBytes
+    ?? DEFAULT_MAX_SNAPSHOT_BUFFERED_BYTES;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const maxRooms = options.maxRooms ?? DEFAULT_MAX_ROOMS;
   const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins);
@@ -398,6 +402,7 @@ export function createGameServer(options = {}) {
     maxSnapshotBytes,
     snapshotIntervalMs,
     maxBufferedBytes,
+    maxSnapshotBufferedBytes,
     maxConnections,
     maxRooms,
   })) {
@@ -743,7 +748,7 @@ export function createGameServer(options = {}) {
       room,
       snapshot,
       (candidate) => candidate.id !== room.hostId,
-      { dropIfBackpressured:true, maxBufferedBytes },
+      { dropIfBackpressured:true, maxBufferedBytes:maxSnapshotBufferedBytes },
     );
   }
 
@@ -1024,6 +1029,7 @@ export function createGameServer(options = {}) {
       maxSnapshotBytes,
       snapshotIntervalMs,
       maxBufferedBytes,
+      maxSnapshotBufferedBytes,
       maxConnections,
       maxRooms,
       allowedOrigins: allowedOrigins ? [...allowedOrigins] : null,
