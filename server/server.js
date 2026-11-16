@@ -380,6 +380,7 @@ export function createGameServer(options = {}) {
   const maxBufferedBytes = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
   const maxSnapshotBufferedBytes = options.maxSnapshotBufferedBytes
     ?? DEFAULT_MAX_SNAPSHOT_BUFFERED_BYTES;
+  const perMessageDeflate = options.perMessageDeflate ?? true;
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   const maxRooms = options.maxRooms ?? DEFAULT_MAX_ROOMS;
   const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins);
@@ -422,13 +423,13 @@ export function createGameServer(options = {}) {
     // 每个客机从 80 KB/s 降到 28 KB/s，中转带宽是这台机器最贵的东西，必须开。
     // concurrencyLimit 挡住「一堆房间同时刷快照把 CPU 吃光」；
     // threshold 以下的小包（输入、心跳、房间状态）不压，压了反而更大。
-    perMessageDeflate: {
+    perMessageDeflate: perMessageDeflate ? {
       zlibDeflateOptions: { level: 6, memLevel: 8 },
       concurrencyLimit: 10,
       threshold: 512,
       serverNoContextTakeover: false,   // 保留上下文：连续快照之间高度相似，字典复用省得多
       clientNoContextTakeover: false,
-    },
+    } : false,
   });
   let heartbeatTimer = null;
   let listening = false;
@@ -1030,6 +1031,7 @@ export function createGameServer(options = {}) {
       snapshotIntervalMs,
       maxBufferedBytes,
       maxSnapshotBufferedBytes,
+      perMessageDeflate,
       maxConnections,
       maxRooms,
       allowedOrigins: allowedOrigins ? [...allowedOrigins] : null,

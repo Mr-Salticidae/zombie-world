@@ -416,6 +416,13 @@ test("exposes /healthz so a deploy can be verified in one line", async () => {
   }
 });
 
+test("negotiates permessage-deflate so large snapshots are compressed on the wire", async (t) => {
+  const fixture = await startFixture();
+  t.after(() => fixture.close());
+  const peer = await fixture.peer();
+  assert.match(peer.ws.extensions, /permessage-deflate/u);
+});
+
 test("drops snapshots instead of queueing them behind a backpressured guest", async (t) => {
   const fixture = await startFixture({
     snapshotIntervalMs: 1,
