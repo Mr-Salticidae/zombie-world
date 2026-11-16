@@ -98,10 +98,11 @@ function normalizeCapacity(value) {
   return capacity;
 }
 
+const MAP_COUNT = 6;
 function normalizeMapIndex(value) {
   const mapIndex = value ?? 0;
-  if (!Number.isInteger(mapIndex) || mapIndex < 0 || mapIndex > 4) {
-    throw new ProtocolError("INVALID_MAP", "Map index must be an integer from 0 to 4.");
+  if (!Number.isInteger(mapIndex) || mapIndex < 0 || mapIndex >= MAP_COUNT) {
+    throw new ProtocolError("INVALID_MAP", `Map index must be an integer from 0 to ${MAP_COUNT - 1}.`);
   }
   return mapIndex;
 }
@@ -491,6 +492,7 @@ export function createGameServer(options = {}) {
       hostId: room.hostId,
       phase: room.phase,
       mapIndex: room.mapIndex,
+      mapCount: MAP_COUNT,
       capacity: room.capacity,
       players: playerList(room),
     });

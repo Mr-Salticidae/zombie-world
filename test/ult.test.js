@@ -18,7 +18,7 @@ function fixture(){
     coinValue: baseScore => baseScore / 5,
     updateMulti(){}, sfx(){}, blood(){},
   });
-  const functions = ['activateUlt', 'updatePlayerFromInput', 'killReward'].map(name => {
+  const functions = ['activateUlt', 'enemyDamage', 'updatePlayerFromInput', 'killReward'].map(name => {
     const definition = source.match(new RegExp('^function ' + name + '\\([\\s\\S]*?^}', 'm'));
     assert.ok(definition, name);
     return definition[0];

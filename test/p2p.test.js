@@ -135,10 +135,10 @@ test('全员准备后开局：两头同时进战局，名单和地图一致', ()
   assert.deepStrictEqual(wired.players.map(p => p.id), local.players.map(p => p.id));
 });
 
-test('地图只认 0–4，越界的钳回去（客机发来的数字不可信）', () => {
+test('地图只认 0–5，越界的钳回去（客机发来的数字不可信）', () => {
   const { net } = makeHost();
   net.send('room.config', { mapIndex:99 });
-  assert.strictEqual(net.room.mapIndex, 4);
+  assert.strictEqual(net.room.mapIndex, 5);
   net.send('room.config', { mapIndex:-7 });
   assert.strictEqual(net.room.mapIndex, 0);
 });

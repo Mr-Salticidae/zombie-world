@@ -87,3 +87,41 @@ test("multiplayer client skips snapshots while its upload buffer is backed up", 
   assert.equal(client.sendInput({ mx:1 }), true);
   assert.equal(sent.length, 2);
 });
+
+test("station selection uses the room server's advertised map count", () => {
+  const { client } = loadClient();
+  const room = { type:"room.state", code:"ABC234", phase:"lobby", hostId:"host", players:[] };
+  client.onMessage({ ...room, mapIndex:5 });
+  assert.equal(client.room.mapCount, 5);
+  assert.equal(client.room.mapIndex, 4);
+
+  client.onMessage({ ...room, mapCount:6, mapIndex:5 });
+  client.onMessage({ type:"match.start", mapIndex:5 });
+  assert.equal(client.room.mapCount, 6);
+  assert.equal(client.room.mapIndex, 5);
+});
+
+test("the host keeps sending snapshots during the transition to results", () => {
+  const game = readFileSync(new URL("../script.js", import.meta.url), "utf8");
+  const definitions = ["sendHostSnapshot", "loop"].map(name => {
+    const match = game.match(new RegExp("^function " + name + "\\([\\s\\S]*?^}", "m"));
+    assert.ok(match, name);
+    return match[0];
+  });
+  const sent = [];
+  const context = vm.createContext({
+    state:"dying", netMode:"host", frameN:1, last:100, lastSnapshotSent:100,
+    snapshotTick:1, time:0, particles:[], shake:0,
+    multiplayerActive:() => true,
+    buildNetworkState:() => ({ phase:"dying" }),
+    net:{ sendSnapshot:snapshot => sent.push(snapshot) },
+    render(){}, requestAnimationFrame(){},
+  });
+  vm.runInContext(definitions.join("\n"), context);
+  context.loop(130);
+  assert.equal(sent.length, 0);
+  context.loop(151);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].state.phase, "dying");
+  assert.equal(sent[0].tick, 2);
+});

@@ -227,6 +227,7 @@ test("creates, joins, readies, configures and starts a 2-4 player room", async (
 
   assert.equal(hostState.phase, "lobby");
   assert.equal(hostState.capacity, 4);
+  assert.equal(hostState.mapCount, 6);
   assert.equal(hostState.hostId, hostState.selfId);
   assert.equal(guestState.code, hostState.code);
   assert.notEqual(guestState.selfId, hostState.selfId);
@@ -236,14 +237,19 @@ test("creates, joins, readies, configures and starts a 2-4 player room", async (
   const forbidden = await guest.waitFor((message) => message.type === "error");
   assert.equal(forbidden.code, "FORBIDDEN");
 
-  host.send({ type: "room.config", mapIndex: 3 });
+  host.send({ type: "room.config", mapIndex: 6 });
+  const invalidMap = await host.waitFor((message) => message.type === "error");
+  assert.equal(invalidMap.code, "INVALID_MAP");
+
+  host.send({ type: "room.config", mapIndex: 5 });
   const configured = await guest.waitFor(
-    (message) => message.type === "room.state" && message.mapIndex === 3,
+    (message) => message.type === "room.state" && message.mapIndex === 5,
   );
-  assert.equal(configured.mapIndex, 3);
+  assert.equal(configured.mapIndex, 5);
+  assert.equal(configured.mapCount, 6);
 
   const started = await readyAndStart(host, guest);
-  assert.equal(started.mapIndex, 3);
+  assert.equal(started.mapIndex, 5);
   assert.equal(started.players.length, 2);
 
   guest.send({ type: "match.finish" });

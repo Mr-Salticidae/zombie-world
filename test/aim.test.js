@@ -42,7 +42,7 @@ vm.createContext(ctx);
 // hitPillar / losBlocked / blockingPillar 也从源码里抠，
 // 视线规则和绕障判断测的就是仓库里那一份
 const SRC = [extract('hitPillar'), extract('losBlocked'), extract('blockingPillar'),
-  extract('pickAimTarget'),
+  extract('guardFaces'), extract('pickAimTarget'),
   'globalThis.__pick = pickAimTarget; globalThis.__blocking = blockingPillar;'].join(String.fromCharCode(10));
 vm.runInContext(SRC, ctx);
 const pick = ctx.__pick;
@@ -52,6 +52,15 @@ const CONE_MOUSE = constant('AIM_CONE_MOUSE');
 const P = () => ({ x: 480, y: 320, aimLock: null });          // 玩家站在视口中心
 const Z = (x, y, extra) => Object.assign({ x, y, r: 12, hp: 30 }, extra);
 const B = (x, y, extra) => Object.assign({ x, y, r: 11, hp: 1 }, extra);   // 油桶
+
+test('自动锁定优先打稍远的无盾敌人，绕到盾尸侧面后可正常锁定', () => {
+  const p = P(), shield = Z(530, 320, { shield:true, fx:-1, fy:0 });
+  const open = Z(610, 320);
+  ctx.zombies = [shield, open];
+  assert.strictEqual(pick(p, 1, 0, 560, null, 'off'), open);
+  shield.fx = 0; shield.fy = 1;
+  assert.strictEqual(pick(p, 1, 0, 560, null, 'off'), shield);
+});
 
 test.afterEach(() => {
   ctx.zombies = []; ctx.devils = []; ctx.bosses = []; ctx.barrels = [];

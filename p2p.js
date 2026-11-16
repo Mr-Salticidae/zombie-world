@@ -27,6 +27,7 @@
   "use strict";
 
   const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // 去掉了 I O 0 1，念出来不会错
+  const MAP_COUNT = 6;
   const GATHER_TIMEOUT_MS = 4000;   // 候选收集封顶：不用 trickle，等收齐再一次性出码
   const HELLO_TIMEOUT_MS  = 8000;   // 通道开了但对方迟迟不报到
   const PING_INTERVAL_MS  = 2000;
@@ -163,6 +164,7 @@
         hostId: this.selfId,
         phase: "lobby",
         mapIndex: 0,
+        mapCount: MAP_COUNT,
         capacity: 2,                 // 人肉信令的硬上限，见文件头
         players: [{ id:this.selfId, name:safeName(name, "房主"), slot:0, ready:false, connected:true }]
       };
@@ -452,7 +454,8 @@
             code: String(message.code || ""),
             hostId: String(message.hostId || ""),
             phase: message.phase === "playing" ? "playing" : "lobby",
-            mapIndex: Number.isInteger(message.mapIndex) ? Math.max(0, Math.min(4, message.mapIndex)) : 0,
+            mapIndex: Number.isInteger(message.mapIndex) ? Math.max(0, Math.min(MAP_COUNT-1, message.mapIndex)) : 0,
+            mapCount: MAP_COUNT,
             capacity: 2,
             players: Array.isArray(message.players) ? message.players : []
           };
@@ -463,7 +466,7 @@
         case "match.start": {
           if (this.room){
             this.room.phase = "playing";
-            if (Number.isInteger(message.mapIndex)) this.room.mapIndex = message.mapIndex;
+            if (Number.isInteger(message.mapIndex)) this.room.mapIndex = Math.max(0, Math.min(MAP_COUNT-1, message.mapIndex));
             if (Array.isArray(message.players)) this.room.players = message.players;
           }
           this.emit("match.start", message);
@@ -534,7 +537,7 @@
         }
         case "room.config": {
           if (this.room && payload && Number.isInteger(payload.mapIndex)){
-            this.room.mapIndex = Math.max(0, Math.min(4, payload.mapIndex));
+            this.room.mapIndex = Math.max(0, Math.min(MAP_COUNT-1, payload.mapIndex));
             this.emitRoomState();
           }
           return true;

@@ -128,7 +128,7 @@ function hideRotateTip(){
   rotateTip.classList.add('hidden');
 }
 function checkOrient(){
-  if (innerHeight <= innerWidth){ hideRotateTip(); return; }
+  if (state !== 'play' || innerHeight <= innerWidth){ hideRotateTip(); return; }
   if (rotateTipShown || !isPhone() || localStoreGet(ROTATE_KEY) === 'off') return;
   refreshRotateCta();          // App 内能一键转屏，那这条提示就该是个按钮，而不是一句话
   rotateTipShown = true;
@@ -266,10 +266,11 @@ function refreshRotateCta(){
   rotateText.textContent = can ? '横过来视野更宽 —— 点一下就转' : '竖屏也能玩 · 横过来视野更宽';
 }
 function refreshScreenBtns(){
+  const value = container.orientation === 'landscape' ? '横屏' : '竖屏';
   for (const b of screenBtns){
     if (!b) continue;
     b.classList.toggle('hidden', !containerCanRotate());
-    b.textContent = '屏幕方向：' + (container.orientation === 'landscape' ? '横屏' : '竖屏');
+    showOptionValue(b, value);
   }
   refreshRotateCta();
 }
@@ -514,8 +515,29 @@ function rnd(){ rngSeed = (rngSeed * 16807) % 2147483647; return (rngSeed - 1) /
 
 // 障碍物：六棱石柱（圆形碰撞体）
 const pillars = [];
+const navWalkCache = new Map();
+const STATION_CROSSINGS = [300, 960, 1620];
+const STATION_BARRIERS = [420, 860].flatMap(y =>
+  [430, 510, 590, 670, 1250, 1330, 1410, 1490].map(x => ({ x, y, r:42, rail:true })));
+const STATION_ENTRIES = [
+  { x:230, y:260, name:'一号月台西口' },
+  { x:1690, y:1020, name:'二号月台东口' },
+  { x:1690, y:260, name:'一号月台东口' },
+  { x:230, y:1020, name:'二号月台西口' },
+];
+const STATION_BARRELS = [[370,500],[550,360],[1210,340],[1530,520],
+                       [395,785],[708,930],[1375,925],[1550,775]];
+let stationPillars = null;
 function buildPillars(){
+  const station = MAPS[mapIndex].station === true;
+  if (stationPillars === station) return;
+  stationPillars = station;
   pillars.length = 0;
+  navWalkCache.clear();
+  if (station){
+    pillars.push(...STATION_BARRIERS);
+    return;
+  }
   const add = (x, y, r, h) => pillars.push({ x, y, r, h });
   // 仿截图：成簇的大柱 + 一排小柱
   add(540, 230, 64, 120); add(700, 215, 60, 116);
@@ -526,7 +548,6 @@ function buildPillars(){
   add(1250, 960, 60, 112); add(1400, 1000, 56, 104); add(1330, 870, 30, 56);
   add(960, 620, 34, 62);
 }
-buildPillars();
 
 // 地图上预置的油桶（灰色橙条，可引爆）
 const BARREL_SPOTS = [
@@ -564,7 +585,7 @@ function tuft(c, x, y, s, color){
   }
   c.globalAlpha = 1;
 }
-/* ---------- 五种地图主题 ---------- */
+/* ---------- 地图主题 ---------- */
 const MAPS = [
   { name:'沙漠荒野', base:'#dccfb2', patch1:'#c3bdb2', patch2:'#cdc6ba', light:'#e6dcc1',
     dark:'#c9b894', tuft1:'#b9ad8d', tuft2:'#a8a08c', pil:['#bdb8ae','#a8a399','#e9e6df'] },
@@ -577,6 +598,7 @@ const MAPS = [
     accent:'#d8521e' },
   { name:'夜幕街区', base:'#8d9095', patch1:'#797c82', patch2:'#84878c', light:'#9da0a5',
     dark:'#6c6f74', tuft1:'#5d6065', tuft2:'#54575c', pil:['#a3a6ab','#8b8e93','#c8cbd0'] },
+  { name:'废弃车站', station:true },
 ];
 const MAP_KEY = 'zombie-world-map';
 const storedMapIndex = Number(localStoreGet(MAP_KEY));
@@ -594,11 +616,69 @@ function syncGroundScale(){
   groundScale = step;
   buildGround();
 }
+function drawStationGround(c){
+  c.fillStyle = '#626b70';
+  c.fillRect(0, 0, WW, WH);
+  for (const y of [175, 1105]){
+    c.fillStyle = '#454e55';
+    c.fillRect(0, y-59, WW, 118);
+    c.fillStyle = '#667077';
+    for (let x = 12; x < WW; x += 48) c.fillRect(x, y-48, 14, 96);
+    c.fillStyle = '#9aa5a7';
+    for (const railY of [y-31, y+25]) c.fillRect(0, railY, WW, 6);
+    c.fillStyle = '#3b464b';
+    c.fillRect(0, y+57, WW, 3);
+  }
+  for (const y of [245, 1035]){
+    c.fillStyle = '#bc9350';
+    c.fillRect(0, y-3, WW, 6);
+  }
+  c.fillStyle = '#777e80';
+  c.fillRect(0, 476, WW, 328);
+  c.strokeStyle = '#6b7377'; c.lineWidth = 2;
+  c.beginPath();
+  for (let x = 0; x < WW; x += 96){ c.moveTo(x, 476); c.lineTo(x, 804); }
+  for (let y = 476; y <= 804; y += 82){ c.moveTo(0, y); c.lineTo(WW, y); }
+  c.stroke();
+  for (const x of STATION_CROSSINGS){
+    c.fillStyle = '#909697';
+    c.fillRect(x-47, 360, 94, 560);
+    c.fillStyle = '#a7abad';
+    for (let y = 375; y < 920; y += 36) c.fillRect(x-39, y, 78, 7);
+  }
+  c.fillStyle = '#505a60';
+  c.fillRect(817, 607, 286, 66);
+  c.fillStyle = '#d9d6c2'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = 'bold 27px sans-serif';
+  c.fillText('站 台 通 道', 960, 640);
+  c.fillStyle = '#d1b170'; c.font = 'bold 24px sans-serif';
+  c.fillText('01', 960, 315); c.fillText('02', 960, 965);
+  for (const entry of STATION_ENTRIES){
+    c.fillStyle = '#333b40';
+    c.fillRect(entry.x-55, entry.y-20, 110, 40);
+    c.strokeStyle = '#a28353'; c.lineWidth = 3;
+    c.strokeRect(entry.x-55, entry.y-20, 110, 40);
+  }
+  rngSeed = 727;
+  c.fillStyle = 'rgba(33,40,44,.18)';
+  for (let i = 0; i < 440; i++){
+    const x = rnd()*WW, y = rnd()*WH;
+    c.fillRect(x, y, 1+rnd()*4, 1+rnd()*2);
+  }
+  c.strokeStyle = 'rgba(39,45,48,.25)'; c.lineWidth = 1.7;
+  for (const [x, y] of [[315,540],[514,610],[682,725],[1095,490],[1375,765],[1516,703],[1141,950]]){
+    c.beginPath();
+    c.moveTo(x, y); c.lineTo(x+17, y+11); c.lineTo(x+25, y+8); c.lineTo(x+50, y+23);
+    c.moveTo(x+17, y+11); c.lineTo(x+12, y+25);
+    c.stroke();
+  }
+}
 function buildGround(){
   const m = MAPS[mapIndex];
   const w = Math.round(WW * groundScale), h = Math.round(WH * groundScale);
   if (ground.width !== w || ground.height !== h){ ground.width = w; ground.height = h; }
   gctx.setTransform(w / WW, 0, 0, h / WH, 0, 0);   // 底下所有绘制照旧用世界坐标
+  if (m.station){ drawStationGround(gctx); return; }
   rngSeed = 7;
   gctx.fillStyle = m.base;                     // 地面底色
   gctx.fillRect(0, 0, WW, WH);
@@ -738,7 +818,11 @@ const BOSS_TYPES = [
   { name:'僵尸博士', scale:2.5,  hp:w => 1150 + w*130, spd:42, melee:24, chain:3,
     sk:{ summon:1, charge:1, slam:1, barrage:1, pools:1, rage:1 },
     eye:'#39ff88', vcol:'#2f6a4a', doctor:true },
+  { name:'路障巨尸', scale:1.85, hp:w => 410 + w*74, spd:55, melee:18,
+    sk:{ charge:1 }, eye:'#ffbd57', vcol:'#956441', roadblock:true, reward:280 },
 ];
+const ROADBLOCK_TIER = BOSS_TYPES.length - 1;
+const ROADBLOCK_RAM_SPEED = 380, ROADBLOCK_RAM_TIME = 1.05;
 const SK_NAMES = { summon:'召唤', charge:'冲锋', spit:'毒吐', slam:'震地',
                    barrage:'弹幕', pools:'毒池', rage:'狂暴' };
 
@@ -746,7 +830,7 @@ let state = 'menu';
 let controlMode = 'classic';   // 'classic' 键盘经典 | 'mouse' 鼠标点击移动
 let player, zombies, devils, bosses, bullets, grenades, rockets, barrels, fireballs,
     particles, pickups, banners, hazards, coins, cam;
-let wave, spawnQueue, devilQueue, spawnTimer, waveRest, score, kills,
+let wave, spawnQueue, devilQueue, stationQueue, spawnTimer, waveRest, score, kills,
     streak, multiplier, bestMulti, comboTimer, decayTimer, shake, time, frameN;
 let gameOverTimer = null;
 
@@ -829,6 +913,7 @@ function pickAimTarget(p, ax, ay, range, cone, barrelMode, sticky){
         ? d * (1 + AIM_BACK_BIAS * (off / Math.PI))
         : (off / cone) * 260 + d * .35;
       score *= weight;
+      if (cone === null && guardFaces(z, p.x-z.x, p.y-z.y)) score += 160;
       if (z === p.aimLock) score /= stick;
       pool.push({ z, score });
     }
@@ -912,8 +997,9 @@ function reset(roster){
   zombies = []; devils = []; bosses = []; bullets = []; grenades = []; rockets = [];
   fireballs = []; particles = []; pickups = []; banners = []; hazards = []; coins = [];
   floaters.length = 0; shopWave = 0; closeShop();
-  barrels = BARREL_SPOTS.map(([x,y]) => ({ x, y, r: 11, hp: 1 }));
-  wave = 0; spawnQueue = 0; devilQueue = 0; spawnTimer = 0; waveRest = 2.2;
+  buildPillars();
+  barrels = (MAPS[mapIndex].station ? STATION_BARRELS : BARREL_SPOTS).map(([x,y]) => ({ x, y, r: 11, hp: 1 }));
+  wave = 0; spawnQueue = 0; devilQueue = 0; stationQueue = 0; spawnTimer = 0; waveRest = 2.2;
   score = 0; kills = 0; streak = 0; multiplier = 1; bestMulti = 1;
   comboTimer = 0; decayTimer = 0; shake = 0; time = 0; frameN = 0;
   decals.length = 0;
@@ -941,13 +1027,18 @@ function startWave(){
   const partyScale = 1 + Math.max(0, livingPlayers().length - 1) * .55;
   spawnQueue = Math.ceil((6 + wave * 4) * partyScale * D.count);
   devilQueue = wave >= 4 ? Math.ceil((wave - 3) * 1.5 * partyScale * D.count) : 0;
-  banners.push({ text: '第 ' + wave + ' 波', sub: '僵尸来袭！', life: 2.2, big: true });
+  const station = MAPS[mapIndex].station;
+  stationQueue = station ? Math.min(5, spawnQueue) : 0;
+  if (station) spawnTimer = 1.8;
+  const waveTip = station ? stationEntrance(wave).name + '即将来怪' : '僵尸来袭！';
+  banners.push({ text: '第 ' + wave + ' 波', sub: waveTip, life: 2.2, big: true });
+  if (station && wave === 1) banners.push({ text:'盾尸正面挡弹', sub:'绕到侧面，或引爆油桶', life:3, small:true });
   sfx('wave');
   // 每波一只 Boss：前五波五级递进；第 6 波起在前四级之间轮转、每逢 5 的倍数波博士回归。
   // 原来是 min(wave,5)-1，第 5 波之后永远是满技能僵尸博士，这正是第六波过不去的主因。
-  const tier = wave <= 5 ? wave - 1 : (wave % 5 === 0 ? 4 : (wave - 1) % 5);
+  const tier = station && wave % 5 === 3 ? ROADBLOCK_TIER : (wave - 1) % 5;
   const T = BOSS_TYPES[tier];
-  const s = edgeSpawn();
+  const s = T.roadblock ? stationEntrance(wave + 1) : edgeSpawn();
   const bhp = Math.ceil(T.hp(wave) * (1 + Math.max(0, livingPlayers().length - 1) * .5) * D.boss);
   bosses.push({ x:s.x, y:s.y, r:12*T.scale + 4, hp:bhp, maxhp:bhp, boss:true, tier, T,
     walk:0, fx:0, fy:1, hit:0, atk:0,
@@ -961,7 +1052,8 @@ function startWave(){
     navT:0 });                      // 寻路刷新计时，见 bossSteer
   setTimeout(() => AC && sfx('roar'), 500);
   const skills = Object.keys(T.sk).map(k => SK_NAMES[k]).join('/');
-  banners.push({ text:'BOSS · ' + T.name, sub:'技能：' + skills, life:2.8 });
+  const bossTip = T.roadblock ? '撞护栏可破防' : '技能：' + skills;
+  banners.push({ text:'BOSS · ' + T.name, sub:bossTip, life:2.8 });
   if (T.doctor) banners.push({ text:'警告', sub:'巨大威胁逼近——僵尸博士驾到！', life:3, small:true });
 }
 
@@ -969,7 +1061,7 @@ function startWave(){
 const keys = {};
 addEventListener('keydown', e => {
   audioInit();
-  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+  if (state === 'play' && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
   keys[e.key.toLowerCase()] = true;
   if (state === 'play'){
     if (e.key === 'q' || e.key === 'Q') cycleWeapon(-1);
@@ -979,6 +1071,8 @@ addEventListener('keydown', e => {
     if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !multiplayerActive()) setScreen('pause');
   } else if (state === 'pause' && (e.key === 'p' || e.key === 'P' || e.key === 'Escape')){
     setScreen('play');
+  } else if (state === 'settings' && e.key === 'Escape'){
+    closeSettings();
   }
 });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -1356,7 +1450,6 @@ function hitPillar(x, y, r){
 // 从目标附近的可站格做 BFS 得到距离场，Boss 沿距离递减走，并尽量直奔看得见的最远格子。
 // 目标躲在 Boss 根本挤不进去的缝里时，种子会向外扩，Boss 就停在能到的最近处。
 const NAV_CELL = 20, NAV_W = Math.ceil(WW/NAV_CELL), NAV_H = Math.ceil(WH/NAV_CELL);
-const navWalkCache = new Map();
 function navWalkable(r){
   const key = Math.ceil(r);
   let grid = navWalkCache.get(key);
@@ -1407,7 +1500,13 @@ function navBuild(o, tx, ty){
 // 返回朝向下一个路点的单位向量
 function bossSteer(o, tx, ty, dt){
   const ddx = tx-o.x, ddy = ty-o.y, dd = Math.hypot(ddx, ddy) || 1;
-  if (!blockingPillar(o.x, o.y, tx, ty, o.r)) return [ddx/dd, ddy/dd];
+  const blocker = blockingPillar(o.x, o.y, tx, ty, o.r);
+  const detour = stationDetour(o, tx, ty, blocker);
+  if (detour){
+    const [x, y] = detour, length = Math.hypot(x, y) || 1;
+    return [x/length, y/length];
+  }
+  if (!blocker) return [ddx/dd, ddy/dd];
   o.navT = (o.navT || 0) - dt;
   if (o.navT <= 0 || !o.navDist){ o.navT = .4; navBuild(o, tx, ty); }
   const dist = o.navDist;
@@ -1465,6 +1564,33 @@ function blockingPillar(x0, y0, x1, y1, r){
   }
   return best;
 }
+function stationDetour(z, tx, ty, rail){
+  let route = z.railRoute;
+  if (route){
+    const side = Math.sign(route.entryY-route.row);
+    const crossed = (z.y-route.exitY)*side < 3;
+    const targetReturned = (ty-route.row)*side > 0 && (z.y-route.row)*side > 0;
+    if (crossed || targetReturned) z.railRoute = route = null;
+  }
+  if (!route){
+    if (!rail?.rail) return null;
+    const side = z.y < rail.y ? -1 : 1;
+    const clearance = rail.r + z.r + 12;
+    const entryY = rail.y + side*clearance, exitY = rail.y - side*clearance;
+    if ((ty-rail.y)*side >= 0){
+      return (z.y-entryY)*side < -3 ? [0, side] : [tx-z.x, 0];
+    }
+    let bestX = STATION_CROSSINGS[0], best = Infinity;
+    for (const x of STATION_CROSSINGS){
+      const distance = Math.hypot(x-z.x, entryY-z.y) + Math.hypot(tx-x, ty-exitY);
+      if (distance < best){ best = distance; bestX = x; }
+    }
+    z.railRoute = route = { row:rail.y, x:bestX, entryY, exitY, crossing:false };
+  }
+  if (Math.abs(z.x-route.x) < 10) route.crossing = true;
+  const y = route.crossing ? route.exitY : route.entryY;
+  return [route.x-z.x, y-z.y];
+}
 
 /* ---------- 敌人生成（从世界四周边缘进场） ---------- */
 function edgeSpawn(){
@@ -1475,12 +1601,16 @@ function edgeSpawn(){
   if (side === 2) return { x: m, y: Math.random()*WH };
   return { x: WW-m, y: Math.random()*WH };
 }
+function stationEntrance(waveNumber){
+  return STATION_ENTRIES[(waveNumber - 1) % STATION_ENTRIES.length];
+}
 // 僵尸/恶魔工厂：刷怪与 Boss 召唤共用一份字段，免得两处各写一半
 // （stuck / side / chk 是绕障用的，漏了就退化成原来那种「顶着石柱推一辈子」）
-function makeZombie(x, y, elite){
+function makeZombie(x, y, elite, shield = false){
   const hp = Math.ceil((26 + wave*3) * (elite ? 1.25 : 1) * DIF().hp);
-  return { x, y, r:12, hp, maxhp:hp,
-    walk:0, spd:(46 + wave*1.5) * (0.85 + Math.random()*0.35) * (elite ? 1.3 : 1),
+  return { x, y, r:shield ? 15 : 12, hp, maxhp:hp,
+    shield:shield || undefined,
+    walk:0, spd:(46 + wave*1.5) * (0.85 + Math.random()*0.35) * (elite ? 1.3 : shield ? .88 : 1),
     atk:0, fx:0, fy:1, hit:0, wob:Math.random()*6.28,
     chk:.5 + Math.random()*.5, stuck:0,
     side:0,                                    // 当前绕行方向：0 = 没被挡，路是通的
@@ -1491,13 +1621,22 @@ function makeDevil(x, y){
   return { x, y, r:13, hp, maxhp:hp, walk:0, cool:1.5+Math.random(), fx:0, fy:1, hit:0 };
 }
 function spawnEnemy(){
+  if (stationQueue > 0 && spawnQueue > 0){
+    const entry = stationEntrance(wave);
+    const z = makeZombie(entry.x, entry.y + (Math.random()-.5)*58, false, stationQueue % 3 === 2);
+    z.fx = entry.x < WW/2 ? 1 : -1; z.fy = 0;
+    stationQueue--; spawnQueue--;
+    zombies.push(z);
+    return;
+  }
   const s = edgeSpawn();
   if (devilQueue > 0 && Math.random() < 0.28){
     devilQueue--;
     devils.push(makeDevil(s.x, s.y));
   } else if (spawnQueue > 0){
     spawnQueue--;
-    zombies.push(makeZombie(s.x, s.y, false));
+    const shield = MAPS[mapIndex].station && wave >= 2 && spawnQueue % 6 === 0;
+    zombies.push(makeZombie(s.x, s.y, false, shield));
     if (Math.random() < .3) sfx('groan');
   }
 }
@@ -1587,6 +1726,20 @@ function shoot(p, now){
       break;
   }
 }
+function guardFaces(z, dx, dy){
+  const guarded = z.shield === true || (z.T?.roadblock === true && z.mode !== 'ramStun' && z.mode !== 'ramRecover');
+  return guarded && z.fx*dx + z.fy*dy > Math.hypot(dx, dy)*.64;
+}
+function turnGuard(z, dx, dy, step){
+  const current = Math.atan2(z.fy, z.fx);
+  const turn = Math.atan2(dy, dx) - current;
+  const delta = Math.atan2(Math.sin(turn), Math.cos(turn));
+  const next = current + Math.max(-step, Math.min(step, delta));
+  z.fx = Math.cos(next); z.fy = Math.sin(next);
+}
+function enemyDamage(z, amount){
+  return z.mode === 'ramStun' ? amount * 1.6 : amount;
+}
 function explode(x, y, radius, dmg, ownerId){
   sfx('boom'); shake = Math.max(shake, 14);
   scorch(x, y, radius*.7);
@@ -1601,7 +1754,7 @@ function explode(x, y, radius, dmg, ownerId){
       if (z.hp <= 0) continue;
       const d = Math.hypot(z.x-x, z.y-y);
       if (d < radius + z.r){
-        z.hp -= dmg * (1 - d/(radius+z.r)*0.6);
+        z.hp -= enemyDamage(z, dmg * (1 - d/(radius+z.r)*0.6));
         if (ownerId) z.lastHitBy = ownerId;
         z.hit = .15;
         const k = 220/(d+24);
@@ -1769,6 +1922,7 @@ function openShop(){
   if (btnShopGo) btnShopGo.classList.toggle('hidden', netMode === 'guest');
   renderShop();
   syncShopDom();
+  shopGrid.scrollTop = 0;
 }
 function closeShop(){
   if (!shopOpen) return;
@@ -1780,19 +1934,21 @@ function renderShop(){
   shopCashShown = player.cash;
   if (shopCashEl) shopCashEl.textContent = player.cash;
   const items = shopCatalog(player);
+  const scroll = shopGrid.scrollTop;
   shopGrid.innerHTML = items.map(it =>
     '<button class="shop-item' + (it.full ? ' full' : (it.ok ? '' : ' poor')) + '"' +
     ' data-id="' + it.id + '"' + (it.ok ? '' : ' disabled') + '>' +
     '<b>' + it.name + '</b><i>' + it.sub + '</i>' +
     '<u>' + it.have + '</u>' +
-    '<em>' + (it.full ? '已满' : it.cost) + '</em></button>').join('');
+    '<em>' + (it.full ? '已满' : it.cost + ' 金币') + '</em></button>').join('');
+  shopGrid.scrollTop = scroll;
 }
 function shopFootTick(){
   if (!shopOpen || !shopFootEl) return;
   // 单人时商店一直等你，所以不显示倒计时；联机不能卡住对方，显示还剩几秒
   const label = multiplayerActive()
     ? '下一波 ' + Math.max(0, Math.ceil(waveRest)) + ' 秒'
-    : '买完点「开打」';
+    : '第 ' + wave + ' 波已清场';
   if (label !== shopCountLabel){ shopCountLabel = label; shopFootEl.textContent = label; }
 }
 /* 每帧检查该不该开/关商店。房主和客机走的是不同的更新函数，
@@ -1873,6 +2029,13 @@ function activateUlt(target){
   sfx('unlock'); sfx('wave');
   if (p === player) shake = Math.max(shake, 8);
 }
+function renderFinalStats(){
+  document.getElementById('finalScore').textContent = score.toLocaleString();
+  document.getElementById('finalWave').textContent = wave;
+  document.getElementById('finalKills').textContent = kills;
+  document.getElementById('finalCombo').textContent = '×' + bestMulti;
+  document.getElementById('finalCount').textContent = allPlayers().length;
+}
 function gameOver(){
   if (state === 'dying' || state === 'over') return;
   sfx('boom');
@@ -1883,23 +2046,20 @@ function gameOver(){
     bloodSplat(p.x, p.y, 26);
     blood(p.x, p.y, 18, true);
   }
-  document.getElementById('finalStats').innerHTML =
-    '队伍人数<em>' + allPlayers().length + '</em>&nbsp;&nbsp;坚守波数<em>' + wave + '</em><br>' +
-    '击杀数<em>' + kills + '</em>&nbsp;&nbsp;' +
-    '最高连击<em>×' + bestMulti + '</em>&nbsp;&nbsp;最终得分<em>' + score.toLocaleString() + '</em>';
+  renderFinalStats();
   const retry = document.getElementById('btnRetry');
   retry.disabled = netMode === 'guest';
   retry.textContent = netMode === 'host' ? '返回房间再战' :
     (netMode === 'guest' ? '等待房主重开' : '重新开始');
   state = 'dying';
-  if (netMode === 'host'){
-    lastSnapshotSent = performance.now();
-    net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
-  }
+  if (netMode === 'host') sendHostSnapshot(performance.now());
   const modeAtDeath = netMode;
   gameOverTimer = setTimeout(() => {
     gameOverTimer = null;
-    if (state === 'dying' && netMode === modeAtDeath) setScreen('over');
+    if (state === 'dying' && netMode === modeAtDeath){
+      if (netMode === 'host' && performance.now() - lastSnapshotSent >= 50) sendHostSnapshot(performance.now());
+      setScreen('over');
+    }
   }, 900);
 }
 
@@ -2010,7 +2170,7 @@ function updatePlayerFromInput(p, input, dt, now){
         for (const z of list){
           const d = Math.hypot(z.x-p.x, z.y-p.y);
           if (z.hp > 0 && d < R + z.r){
-            z.hp -= 26; z.hit = .12; z.lastHitBy = p.id; hits++;
+            z.hp -= enemyDamage(z, 26); z.hit = .12; z.lastHitBy = p.id; hits++;
             let k = (R + z.r - d) * .25 + 6;
             if (z.boss) k *= .25;
             z.x += (z.x-p.x)/(d||1)*k;
@@ -2029,6 +2189,64 @@ function updatePlayerFromInput(p, input, dt, now){
   } else if (data.fire){
     shoot(p, now);
   }
+}
+
+function updateRoadblockBoss(b, target, d, dt){
+  if (b.mode === 'walk'){
+    b.cool2 -= dt;
+    if (b.cool2 <= 0 && d > 85 && d < 365 && !losBlocked(b.x, b.y, target.x, target.y)){
+      b.mode = 'ramTele'; b.t = .85;
+      b.fx = b.dashx = (target.x-b.x)/d;
+      b.fy = b.dashy = (target.y-b.y)/d;
+      sfx('wave');
+      return;
+    }
+    turnGuard(b, target.x-b.x, target.y-b.y, dt*1.4);
+    const [sx, sy] = bossSteer(b, target.x, target.y, dt);
+    b.x += sx*b.T.spd*dt; b.y += sy*b.T.spd*dt;
+    b.walk += dt*6;
+    collide(b);
+    return;
+  }
+  b.t -= dt;
+  b.fx = b.dashx; b.fy = b.dashy;
+  if (b.mode === 'ramTele'){
+    if (b.t <= 0){
+      b.mode = 'ramDash'; b.t = ROADBLOCK_RAM_TIME;
+      sfx('fire');
+    }
+    return;
+  }
+  if (b.mode === 'ramDash'){
+    const x = b.x + b.dashx*ROADBLOCK_RAM_SPEED*dt;
+    const y = b.y + b.dashy*ROADBLOCK_RAM_SPEED*dt;
+    const barrier = blockingPillar(b.x, b.y, x, y, b.r-.5);
+    if (barrier?.rail){
+      b.mode = 'ramStun'; b.t = 2.4;
+      const ix = b.x + b.dashx*b.r, iy = b.y + b.dashy*b.r;
+      sparks(ix, iy, 18, '#ffca60');
+      sfx('boom'); shake = Math.max(shake, 12);
+      banners.push({ text:'破防', sub:'趁现在开火', life:1.4 });
+      return;
+    }
+    if (barrier || x < b.r || x > WW-b.r || y < b.r || y > WH-b.r){
+      b.mode = 'ramRecover'; b.t = .65;
+      return;
+    }
+    b.x = x; b.y = y; b.walk += dt*16;
+    collide(b);
+    for (const p of livingPlayers()){
+      if (Math.hypot(p.x-b.x, p.y-b.y) >= b.r + p.r + 4 || p.inv > 0) continue;
+      damagePlayer(b.T.melee + 5 + Math.floor(wave/3), p);
+      p.x += b.dashx*26; p.y += b.dashy*26; collide(p);
+      b.t = 0;
+      break;
+    }
+    if (b.t <= 0){ b.mode = 'ramRecover'; b.t = .65; }
+    return;
+  }
+  collide(b);
+  if (b.t <= 0){ b.mode = 'walk'; b.cool2 = 3.2; }
 }
 
 /* ========================================================
@@ -2098,7 +2316,16 @@ function update(dt, now){
       const tryHit = (list, pad, knock) => {
         for (const z of list){
           if (z.hp > 0 && Math.hypot(z.x-b.x, z.y-b.y) < z.r+pad){
-            z.hp -= b.dmg; z.hit = .12; z.lastHitBy = b.ownerId;
+            if (!b.flame && guardFaces(z, -b.vx, -b.vy)){
+              if (!(z.guardHit > 0)){
+                sparks(b.x, b.y, 5, '#ffcb65');
+                sfx('click');
+              }
+              z.guardHit = .16;
+              dead = true;
+              return;
+            }
+            z.hp -= enemyDamage(z, b.dmg); z.hit = .12; z.lastHitBy = b.ownerId;
             blood(b.x, b.y, b.flame ? 1 : 3);
             if (!b.flame || frameN % 3 === 0) sfx('splat');
             if (knock){ z.x += b.vx*dt*1.6; z.y += b.vy*dt*1.6; }
@@ -2162,6 +2389,7 @@ function update(dt, now){
   for (let i = zombies.length-1; i >= 0; i--){
     const z = zombies[i];
     if (z.hit > 0) z.hit -= dt;
+    if (z.guardHit > 0) z.guardHit -= dt;
     if (z.hp <= 0){
       bloodSplat(z.x, z.y, 13 + Math.random()*8);
       drawCorpse(z.x, z.y);
@@ -2195,8 +2423,11 @@ function update(dt, now){
        玩家往柱子后一站就是无限安全收割，正是「卡在墙体后过不来」。
        现在边一旦选定就守住，直到线真的通了才松开。 */
     const blocker = blockingPillar(z.x, z.y, target.x, target.y, z.r + 4);
+    const detour = stationDetour(z, target.x, target.y, blocker);
     let sx, sy;
-    if (blocker){
+    if (detour){
+      [sx, sy] = detour;
+    } else if (blocker){
       const bx = blocker.x - z.x, by = blocker.y - z.y;
       const L = Math.hypot(bx, by) || 1;
       const R = blocker.r + z.r + 4;
@@ -2224,7 +2455,9 @@ function update(dt, now){
     }
     const sl = Math.hypot(sx, sy)||1;
     z.x += sx/sl * z.spd * dt; z.y += sy/sl * z.spd * dt;
-    z.fx = sx/sl; z.fy = sy/sl; z.walk += dt*8;
+    if (z.shield) turnGuard(z, dx, dy, dt*1.85);
+    else { z.fx = sx/sl; z.fy = sy/sl; }
+    z.walk += dt*8;
     collide(z);
     for (let j = i+1; j < zombies.length; j++){
       const o = zombies[j];
@@ -2257,7 +2490,13 @@ function update(dt, now){
     const target = targetInfo.player;
     const dx = target.x - v.x, dy = target.y - v.y, d = targetInfo.distance||1;
     let sx = dx/d, sy = dy/d;
-    if (d < 230){
+    const detour = MAPS[mapIndex].station
+      ? stationDetour(v, target.x, target.y, blockingPillar(v.x, v.y, target.x, target.y, v.r + 4))
+      : null;
+    if (detour){
+      const [x, y] = detour, length = Math.hypot(x, y) || 1;
+      sx = x/length; sy = y/length;
+    } else if (d < 230){
       const t = Math.sin(time*1.3 + i)>0 ? 1 : -1;
       sx = -dy/d*t*.8 - dx/d*.2; sy = dx/d*t*.8 - dy/d*.2;
     }
@@ -2273,26 +2512,28 @@ function update(dt, now){
     }
   }
 
-  // ----- Boss：五级技能体系 -----
+  // ----- Boss -----
   for (let i = bosses.length-1; i >= 0; i--){
     const b = bosses[i];
     const T = b.T, S = T.sk;
     const spdMul = b.rage ? 1.5 : 1, cdMul = b.rage ? .55 : 1;
     if (b.hit > 0) b.hit -= dt;
+    if (b.guardHit > 0) b.guardHit -= dt;
     if (b.atk > 0) b.atk -= dt;
     if (b.hp <= 0){
       bloodSplat(b.x, b.y, 16 + T.scale*6);
       drawCorpse(b.x, b.y, T.scale);
       blood(b.x, b.y, 10, true);
       scorch(b.x, b.y, 14 + T.scale*6);
-      killReward(b.x, b.y, 120 + b.tier*80, b.lastHitBy);
+      const reward = T.reward ?? (120 + b.tier*80);
+      killReward(b.x, b.y, reward, b.lastHitBy);
       pickups.push({ x:b.x-18, y:b.y, type:'heal', life:14 });   // 必掉补给
       pickups.push({ x:b.x+18, y:b.y, type:'ammo', life:14 });
       if (T.doctor){
         pickups.push({ x:b.x, y:b.y-20, type:'heal', life:14 });
         pickups.push({ x:b.x, y:b.y+20, type:'ammo', life:14 });
       }
-      banners.push({ text:T.name + ' 击破！', sub:'+' + (120+b.tier*80) + '×' + multiplier + ' 分', life:2 });
+      banners.push({ text:T.name + ' 击破！', sub:'+' + reward + '×' + multiplier + ' 分', life:2 });
       sfx('roar'); shake = Math.max(shake, 12);
       bosses.splice(i, 1); continue;
     }
@@ -2309,8 +2550,9 @@ function update(dt, now){
       target = info.player; b.targetId = target.id;
     }
     const dx = target.x - b.x, dy = target.y - b.y, d = Math.hypot(dx, dy)||1;
-    b.fx = dx/d; b.fy = dy/d;
-    if (b.mode === 'walk'){
+    if (!T.roadblock){ b.fx = dx/d; b.fy = dy/d; }
+    if (T.roadblock) updateRoadblockBoss(b, target, d, dt);
+    else if (b.mode === 'walk'){
       // 原来 Boss 只会直冲，玩家躲到石柱后面它就顶着柱子推一辈子，波次永远结束不了，
       // 只剩它的召唤源源不断送分送金币。现在走 bossSteer 寻路绕柱。
       const [sx, sy] = bossSteer(b, target.x, target.y, dt);
@@ -2553,10 +2795,6 @@ function update(dt, now){
     if (banners[i].life <= 0) banners.splice(i, 1);
   }
 
-  if (netMode === 'host' && now - lastSnapshotSent >= 50){
-    lastSnapshotSent = now;
-    net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
-  }
 }
 
 /* ---------- 快照瘦身 ----------
@@ -2587,11 +2825,12 @@ function packNet(o, spec){
 }
 const NET_SPEC = {
   // drawZombie: x y fx fy hit walk ｜ pickAimTarget: x y r hp ｜ 血条: hp maxhp
-  zombie:   { nid:0, x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
+  zombie:   { nid:0, x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100,
+              shield:0, guardHit:100 },
   devil:    { nid:0, x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100 },
   // drawBoss 还要 mode / rage 决定姿态与配色；tier 用来在客机侧还原 T（技能表）
   boss:     { nid:0, x:10, y:10, r:0, hp:0, maxhp:0, walk:10, fx:1000, fy:1000, hit:100,
-              boss:0, tier:0, mode:0, rage:0 },
+              boss:0, tier:0, mode:0, rage:0, guardHit:100 },
   // 弹体：客机会按速度外推到下一份快照，所以 vx/vy 必须给
   bullet:   { nid:0, x:10, y:10, vx:10, vy:10, len:0, life:100, max:100, flame:0 },
   grenade:  { nid:0, x:10, y:10, vx:10, vy:10 },
@@ -2625,7 +2864,7 @@ function buildNetworkState(){
   return {
     phase:state === 'over' ? 'dying' : state,
     mapIndex,
-    wave, spawnQueue, devilQueue, spawnTimer, waveRest,
+    wave, spawnQueue, devilQueue, stationQueue, spawnTimer, waveRest,
     score, kills, streak, multiplier, bestMulti, comboTimer, decayTimer,
     players:allPlayers().map(networkPlayerState),
     zombies:packList(zombies, NET_SPEC.zombie),
@@ -2641,6 +2880,10 @@ function buildNetworkState(){
     hazards:packList(hazards, NET_SPEC.hazard),
     banners:packList(banners, NET_SPEC.banner)
   };
+}
+function sendHostSnapshot(now){
+  lastSnapshotSent = now;
+  net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
 }
 
 function networkNumber(value, fallback, min, max){
@@ -2672,6 +2915,7 @@ function applyNetworkState(snapshot){
   if (!snapshot || !Array.isArray(snapshot.players)) return;
   if (Number.isInteger(snapshot.mapIndex) && snapshot.mapIndex !== mapIndex){
     mapIndex = Math.max(0, Math.min(MAPS.length-1, snapshot.mapIndex));
+    buildPillars();
     buildGround(); refreshMapSel();
   }
   const previousLocal = player && player.id === net.selfId ? player : null;
@@ -2810,6 +3054,7 @@ function applyNetworkState(snapshot){
   wave = networkNumber(snapshot.wave, 0, 0, 10000);
   spawnQueue = networkNumber(snapshot.spawnQueue, 0, 0, 100000);
   devilQueue = networkNumber(snapshot.devilQueue, 0, 0, 100000);
+  stationQueue = networkNumber(snapshot.stationQueue, 0, 0, 5);
   spawnTimer = networkNumber(snapshot.spawnTimer, 0, -10, 100000);
   waveRest = networkNumber(snapshot.waveRest, 0, -10, 100000);
   score = networkNumber(snapshot.score, 0, 0, 1e12);
@@ -2820,10 +3065,7 @@ function applyNetworkState(snapshot){
   comboTimer = networkNumber(snapshot.comboTimer, 0, 0, 100000);
   decayTimer = networkNumber(snapshot.decayTimer, 0, 0, 100000);
   if (snapshot.phase === 'dying' && state === 'play'){
-    document.getElementById('finalStats').innerHTML =
-      '队伍人数<em>' + allPlayers().length + '</em>&nbsp;&nbsp;坚守波数<em>' + wave + '</em><br>' +
-      '击杀数<em>' + kills + '</em>&nbsp;&nbsp;最高连击<em>×' + bestMulti +
-      '</em>&nbsp;&nbsp;最终得分<em>' + score.toLocaleString() + '</em>';
+    renderFinalStats();
     state = 'dying';
     clearTimeout(gameOverTimer);
     gameOverTimer = setTimeout(() => {
@@ -3071,6 +3313,19 @@ function drawPlayer(c, p){
   c.restore();
 }
 
+function drawGuardPlate(c, angle, flash, lowered = false, halfWidth = 16){
+  c.save(); c.rotate(angle);
+  c.translate(18, 0);
+  if (lowered) c.rotate(.48);
+  outRect(c, -4, -halfWidth, 9, halfWidth*2, flash ? '#ffe387' : '#423e39');
+  c.fillStyle = '#d5a64d';
+  c.fillRect(-3, -halfWidth+3, 6, 5);
+  c.fillRect(-3, halfWidth-8, 6, 5);
+  c.fillStyle = '#aeb4b2';
+  c.fillRect(-3, -4, 5, 8);
+  c.restore();
+}
+
 /* ---- 僵尸：高大纯黑方块头 + 白衣（仿参考图1） ---- */
 function drawZombie(c, z){
   c.save(); c.translate(z.x|0, z.y|0);
@@ -3106,6 +3361,7 @@ function drawZombie(c, z){
     c.fillStyle = 'rgba(255,255,255,.05)';              // 侧面微光
     c.fillRect(-8, -27, 3, 21);
   }
+  if (z.shield) drawGuardPlate(c, ang, z.guardHit > 0);
   c.restore();
 }
 
@@ -3163,7 +3419,7 @@ function drawCorpse(x, y, scale){
   pushDecal({ cv, x, y, born: time });
 }
 
-/* ---- Boss：五级造型（体型/配色随类型，博士为白褂绿镜疯狂科学家） ---- */
+/* ---- Boss 造型 ---- */
 function drawBoss(c, b){
   const T = b.T, sc = T.scale;
   c.save(); c.translate(b.x|0, b.y|0);
@@ -3182,6 +3438,8 @@ function drawBoss(c, b){
     c.beginPath(); c.ellipse(0, 8, 22*sc*pul, 10*sc*pul, 0, 0, 7); c.stroke();
   }
   c.save(); c.scale(sc, sc);
+  const staggered = b.mode === 'ramStun';
+  if (staggered){ c.translate(0, 9); c.rotate(-.28); }
   const flash = b.hit > 0;
   const tint = flash ? '#fff' : (warn ? '#e8b0aa' : null);
   const ang = Math.atan2(b.fy, b.fx);
@@ -3218,6 +3476,11 @@ function drawBoss(c, b){
       c.fillStyle = '#8e3a34';                           // 暗红血渍
       c.fillRect(2, 4.5, 3.5, 2.5);
     }
+  } else if (T.roadblock){
+    outRect(c, -9, -7, 18, 16, tint || '#343b3e');
+    c.fillStyle = '#d8a751';
+    c.fillRect(-8, -5, 16, 3);
+    c.fillRect(-8, 3, 16, 2);
   } else {
     outRect(c, -8.5, -6, 17, 14, tint || '#e2dfd8');
     if (!flash){
@@ -3231,6 +3494,7 @@ function drawBoss(c, b){
   // 头：更高大的纯黑方块 + 发光双目
   const hh = T.doctor ? 28 : 24;                         // 博士头更高
   outRect(c, -8.5, -6 - hh, 17, hh, tint || (T.doctor ? '#0d0c11' : '#121116'));
+  if (T.roadblock) outRect(c, -10, -8-hh, 20, 6, '#ad7a39');
   if (!flash){
     c.fillStyle = 'rgba(255,255,255,.08)';
     c.fillRect(-8.5, -6 - hh, 17, 3);
@@ -3261,6 +3525,7 @@ function drawBoss(c, b){
       c.fillRect(1.8 + ex, -6 - hh*.55, 3.4, 2.6);
     }
   }
+  if (T.roadblock) drawGuardPlate(c, ang, b.guardHit > 0, staggered || b.mode === 'ramRecover', 22);
   c.restore();
   // 头顶血条
   const bw = 46 + sc*12, bh = 7;
@@ -3269,7 +3534,7 @@ function drawBoss(c, b){
   c.fillRect(-bw/2-1.5, ty-1.5, bw+3, bh+3);
   c.fillStyle = '#3c3128';
   c.fillRect(-bw/2, ty, bw, bh);
-  c.fillStyle = b.rage ? '#39ff88' : '#e03c31';
+  c.fillStyle = staggered ? '#f5c567' : b.rage ? '#39ff88' : '#e03c31';
   c.fillRect(-bw/2, ty, bw*Math.max(0, b.hp/b.maxhp), bh);
   c.restore();
 }
@@ -3300,6 +3565,21 @@ function drawBarrel(c, b){
 
 /* ---- 六棱石柱 ---- */
 function drawPillar(c, p){
+  if (p.rail){
+    const {x, y, r} = p;
+    c.save();
+    c.fillStyle = 'rgba(28,34,37,.36)';
+    c.beginPath(); c.ellipse(x, y+4, r, r*.61, 0, 0, 7); c.fill();
+    outRect(c, x-r, y-20, r*2, 25, '#3a3e40');
+    outRect(c, x-r, y-27, r*2, 11, '#b39861');
+    c.fillStyle = '#e4b653';
+    for (let k = x-r+7; k < x+r-11; k += 19){
+      c.beginPath(); c.moveTo(k, y-17); c.lineTo(k+9, y-17);
+      c.lineTo(k+2, y+1); c.lineTo(k-7, y+1); c.fill();
+    }
+    c.restore();
+    return;
+  }
   const x = p.x|0, y = p.y|0, r = p.r, h = p.h;
   const PC = MAPS[mapIndex].pil;
   const hex = (cx, cy, rr) => {
@@ -3444,7 +3724,7 @@ function drawHUD(){
   // 顶部信息条（轻量化）。触屏单人局左上角压着暂停键，文字整体右移让位
   const hudL = (isTouch && !multiplayerActive())
     ? Math.min(120, Math.ceil(52 / Math.max(.2, viewScale))) : 0;
-  ctx.fillStyle = 'rgba(28,24,18,.62)';
+  ctx.fillStyle = 'rgba(24,21,24,.78)';
   ctx.fillRect(0, 0, VW, 38);
   ctx.fillStyle = '#f2efe4'; ctx.font = 'bold 15px sans-serif';
   ctx.fillText('第 ' + wave + ' 波', hudL + 70, 25);
@@ -3522,7 +3802,7 @@ function drawHUD(){
     ctx.textAlign = 'center';
     ctx.font = 'bold 13px sans-serif';
     ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeStyle = '#23211d';
-    const bname = 'BOSS · ' + b.T.name + (b.rage ? '【狂暴】' : '');
+    const bname = 'BOSS · ' + b.T.name + (b.mode === 'ramStun' ? '【破防】' : b.rage ? '【狂暴】' : '');
     ctx.strokeText(bname, VW/2, by2);
     ctx.fillStyle = b.rage ? '#7dffb0' : '#ff6a5e';
     ctx.fillText(bname, VW/2, by2);
@@ -3592,6 +3872,39 @@ function drawHUD(){
   }
 }
 
+function drawStationWarning(c){
+  if (wave < 1 || stationQueue <= 0) return;
+  const {x, y} = stationEntrance(wave);
+  c.save();
+  const pulse = Math.sin(time*9)*.18 + .8;
+  c.globalAlpha = pulse;
+  c.fillStyle = '#f6bd58';
+  c.fillRect(x-47, y-23, 17, 5); c.fillRect(x+30, y-23, 17, 5);
+  c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = 'bold 13px sans-serif';
+  c.fillText(spawnTimer > 1 ? '即将进场' : '尸潮进场', x, y);
+  c.restore();
+}
+function drawRamWarning(c, b){
+  const length = ROADBLOCK_RAM_SPEED*ROADBLOCK_RAM_TIME;
+  const barrier = blockingPillar(b.x, b.y, b.x+b.fx*length, b.y+b.fy*length, b.r);
+  let end = length;
+  if (barrier){
+    const dx = barrier.x-b.x, dy = barrier.y-b.y;
+    const cross = dx*b.fy - dy*b.fx, r = b.r + barrier.r;
+    const distance = dx*b.fx + dy*b.fy - Math.sqrt(Math.max(0, r*r-cross*cross));
+    end = Math.min(length, Math.max(0, distance));
+  }
+  c.save();
+  c.translate(b.x, b.y); c.rotate(Math.atan2(b.fy, b.fx));
+  c.fillStyle = 'rgba(230,77,50,.22)'; c.fillRect(0, -b.r, end, b.r*2);
+  c.strokeStyle = '#ff8464'; c.lineWidth = 2;
+  c.setLineDash([11, 8]); c.strokeRect(0, -b.r, end, b.r*2); c.setLineDash([]);
+  c.strokeStyle = '#ffd38a';
+  for (let x = 48; x < end-8; x += 55){
+    c.beginPath(); c.moveTo(x-8, -9); c.lineTo(x+2, 0); c.lineTo(x-8, 9); c.stroke();
+  }
+  c.restore();
+}
 function render(){
   const sx = (Math.random()-.5)*shake, sy = (Math.random()-.5)*shake;
   const cx = cam.x + sx, cy = cam.y + sy;
@@ -3616,6 +3929,9 @@ function render(){
     }
   }
   ctx.globalAlpha = 1;
+
+  if (MAPS[mapIndex].station) drawStationWarning(ctx);
+  for (const b of bosses) if (b.mode === 'ramTele') drawRamWarning(ctx, b);
 
   // 平面层：拾取物 + 金币
   for (const p of pickups) drawPickup(ctx, p);
@@ -4059,14 +4375,14 @@ async function doUpload(){
     try {
       const mine = await uploadRun(run);
       if (lastRun !== run) return;          // 授权弹窗期间若已开新局，不覆盖新结算页
-      setUploadBtn('view', '🏆 查看排行榜');
+      setUploadBtn('view', '查看排行榜');
       setOverRank(mine && mine.ranked
         ? '已上榜 · 总榜第 ' + mine.rank + ' 名（' + Number(mine.score).toLocaleString() + ' 分）'
         : '成绩已上传', 'ok');
     } catch (e){
       if (lastRun !== run) return;
       setOverRank(rankErrText(e), 'error');
-      setUploadBtn('upload', '🏆 重试上传');   // 多半是没登录，留着按钮让人重来
+      setUploadBtn('upload', '重试上传');
     } finally {
       uploadInFlight = null;
       btnUpload.disabled = false;
@@ -4083,9 +4399,9 @@ function refreshOverRank(){
     setOverRank('本局是「' + name + '」难度 · 排行榜只统计标准难度');
     return;
   }
-  if (lastRun.submitted){ setUploadBtn('view', '🏆 查看排行榜'); return; }
+  if (lastRun.submitted){ setUploadBtn('view', '查看排行榜'); return; }
   // 每局都由玩家点击提交，避免浏览器换号后沿用未按账号隔离的 localStorage 授权状态。
-  setUploadBtn('upload', '🏆 上传成绩到排行榜');
+  setUploadBtn('upload', '上传成绩到排行榜');
 }
 btnUpload.onclick = () => {
   if (btnUpload.dataset.mode === 'view'){ openRank('over'); sfx('click'); }
@@ -4094,6 +4410,7 @@ btnUpload.onclick = () => {
 
 /* ---------- 排行榜页 ---------- */
 const rankStatus = document.getElementById('rankStatus');
+const rankPanel = document.getElementById('rankPanel');
 const rankListEl = document.getElementById('rankList');
 const rankMine = document.getElementById('rankMine');
 let rankBoard = RANK_SCORE, rankPeriod = 'all', rankToken = 0, rankReturn = 'menu';
@@ -4104,13 +4421,20 @@ function rankRow(item, unit){
   li.className = 'rank-row' + (no >= 1 && no <= 3 ? ' top' + no : '');
   const cNo = document.createElement('span');
   cNo.className = 'no'; cNo.textContent = no || '-';
-  const face = document.createElement('img');
-  face.className = 'face'; face.alt = ''; face.loading = 'lazy';
-  if (item && item.avatar) face.src = item.avatar;
-  face.onerror = () => { face.style.visibility = 'hidden'; };
   const who = document.createElement('span');
   who.className = 'who';
   who.textContent = (item && item.nickname) || '幸存者';   // 别人的昵称，只走 textContent
+  const fallback = document.createElement('span');
+  fallback.className = 'face face-fallback';
+  fallback.setAttribute('aria-hidden', 'true');
+  fallback.textContent = Array.from(who.textContent)[0];
+  let face = fallback;
+  if (item && item.avatar){
+    face = document.createElement('img');
+    face.className = 'face'; face.alt = ''; face.loading = 'lazy';
+    face.onerror = () => face.replaceWith(fallback);
+    face.src = item.avatar;
+  }
   const pt = document.createElement('span');
   pt.className = 'pt';
   pt.textContent = (Number(item && item.score) || 0).toLocaleString() + unit;
@@ -4120,6 +4444,7 @@ function rankRow(item, unit){
 async function loadRank(){
   const token = ++rankToken;                 // 连点页签时，只认最后一次请求的结果
   rankListEl.innerHTML = '';
+  rankPanel.scrollTop = 0;
   rankMine.classList.add('hidden');
   rankStatus.classList.remove('hidden');
   rankStatus.dataset.kind = '';
@@ -4172,8 +4497,10 @@ function bindRankTabs(id, key, set){
   const tabs = box.querySelectorAll('.rank-tab');
   tabs.forEach(btn => {
     btn.onclick = () => {
-      tabs.forEach(b => b.classList.remove('on'));
-      btn.classList.add('on');
+      tabs.forEach(b => {
+        b.classList.toggle('on', b === btn);
+        b.setAttribute('aria-pressed', String(b === btn));
+      });
       set(btn.dataset[key]);
       sfx('click');
       loadRank();
@@ -4193,6 +4520,7 @@ document.getElementById('btnRankBack').onclick = () => { setScreen(rankReturn); 
 
 /* ---------- 界面切换 ---------- */
 const screens = { menu:document.getElementById('menu'), help:document.getElementById('help'),
+                  settings:document.getElementById('settings'),
                   pause:document.getElementById('pause'), over:document.getElementById('over'),
                   mapsel:document.getElementById('mapsel'), online:document.getElementById('online'),
                   rank:document.getElementById('rank') };
@@ -4202,6 +4530,7 @@ function setScreen(s){
   for (const k in screens) screens[k].classList.add('hidden');
   if (screens[s]) screens[s].classList.remove('hidden');
   const playing = (s === 'play');
+  checkOrient();
   const touchPlay = playing && isTouch;
   touchUI.style.display = touchPlay ? 'block' : 'none';
   swapBtn.style.display = touchPlay ? 'block' : 'none';
@@ -4218,10 +4547,13 @@ function setScreen(s){
   if (s === 'menu') applyPendingCloudPreferences();
   cvs.style.cursor = (playing && controlMode === 'mouse') ? 'none' : 'default';
 }
+function showOptionValue(button, value){
+  button.querySelector('.option-value').textContent = value;
+}
 const modeBtns = [document.getElementById('btnMode'), document.getElementById('btnMode2')];
 function refreshModeBtns(){
-  const label = '操作模式：' + (controlMode === 'classic' ? '键盘经典' : '鼠标射击');
-  for (const b of modeBtns) b.textContent = label;
+  const value = controlMode === 'classic' ? '键盘经典' : '鼠标射击';
+  for (const b of modeBtns) showOptionValue(b, value);
 }
 function toggleMode(){
   controlMode = controlMode === 'classic' ? 'mouse' : 'classic';
@@ -4235,8 +4567,11 @@ refreshModeBtns();
 /* ---------- 自动瞄准开关（记在本地） ---------- */
 const aimBtns = [document.getElementById('btnAim'), document.getElementById('btnAim2')];
 function refreshAimBtns(){
-  const label = '自动瞄准：' + (aimAssist ? '开' : '关');
-  for (const b of aimBtns) if (b) b.textContent = label;
+  for (const b of aimBtns){
+    if (!b) continue;
+    showOptionValue(b, aimAssist ? '开' : '关');
+    b.setAttribute('aria-pressed', String(aimAssist));
+  }
 }
 function toggleAim(){
   aimAssist = !aimAssist;
@@ -4261,7 +4596,7 @@ if (btnTouchDbg){
 }
 /* ---------- 难度选择（记在本地，下次进来还是这一档） ---------- */
 const btnDiff = document.getElementById('btnDiff');
-function refreshDiffBtn(){ btnDiff.textContent = '难度：' + DIF().name; }
+function refreshDiffBtn(){ showOptionValue(btnDiff, DIF().name); }
 btnDiff.onclick = () => {
   diffIndex = (diffIndex + 1) % DIFFS.length;
   persistPreferences();
@@ -4276,7 +4611,7 @@ if (savedQuality >= 0) qualityIndex = savedQuality;
 function refreshQualityBtn(){
   const q = QUALITIES[qualityIndex];
   // 顺带把实际渲染倍率写出来，玩家能直接看出这一档到底有没有生效
-  btnQuality.textContent = '画质：' + q.name + '（' + renderScale.toFixed(1) + '×）';
+  showOptionValue(btnQuality, q.name + '（' + renderScale.toFixed(1) + '×）');
 }
 btnQuality.onclick = () => {
   qualityIndex = (qualityIndex + 1) % QUALITIES.length;
@@ -4286,10 +4621,11 @@ btnQuality.onclick = () => {
   sfx('click');
 };
 refreshQualityBtn();
-/* ---------- 地图选择页：五张缩略图卡片 ---------- */
+/* ---------- 地图选择页 ---------- */
 const btnMap = document.getElementById('btnMap');
 const mapGrid = document.getElementById('mapgrid');
 const mapCards = [];
+let mapReturnScreen = 'menu';
 function makeThumb(mi){
   // 临时构建该地图地面以截取缩略图
   const old = mapIndex;
@@ -4298,6 +4634,15 @@ function makeThumb(mi){
   cv.width = 224; cv.height = 126;
   const c = cv.getContext('2d');
   const gs = ground.width / WW;
+  if (MAPS[mi].station){
+    c.drawImage(ground, 0, 0, cv.width, cv.height);
+    c.fillStyle = '#d9ad55';
+    for (const p of STATION_BARRIERS){
+      c.fillRect((p.x-p.r)*cv.width/WW, p.y*cv.height/WH-1, p.r*2*cv.width/WW, 3);
+    }
+    mapIndex = old;
+    return cv;
+  }
   const srcH = WW * 126 / 224;
   c.drawImage(ground, 0, 0, WW*gs, srcH*gs, 0, 0, 224, 126);
   // 叠一个示意石柱
@@ -4310,20 +4655,43 @@ function makeThumb(mi){
   return cv;
 }
 function refreshMapSel(){
-  mapCards.forEach((c, i) => c.classList.toggle('sel', i === mapIndex));
-  btnMap.textContent = '选择地图：' + MAPS[mapIndex].name;
+  const room = mapReturnScreen === 'online' ? net.room : null;
+  const activeMap = room ? room.mapIndex : mapIndex;
+  mapCards.forEach((card, i) => {
+    const selected = i === activeMap;
+    card.classList.toggle('sel', selected);
+    card.setAttribute('aria-pressed', String(selected));
+    card.disabled = !!room && i >= room.mapCount;
+    if (MAPS[i].station){
+      card.querySelector('.map-note').textContent = card.disabled
+        ? '需新版房间服务器'
+        : '双月台 · 盾尸 · 路障巨尸';
+    }
+  });
+  showOptionValue(btnMap, MAPS[mapIndex].name);
 }
 MAPS.forEach((m, i) => {
-  const card = document.createElement('div');
+  const card = document.createElement('button');
+  card.type = 'button';
   card.className = 'mapcard';
   card.appendChild(makeThumb(i));
-  const nm = document.createElement('div');
+  const nm = document.createElement('span');
   nm.className = 'nm'; nm.textContent = m.name;
   card.appendChild(nm);
+  if (m.station){
+    const note = document.createElement('span');
+    note.className = 'map-note';
+    card.appendChild(note);
+  }
   card.onclick = () => {
+    if (mapReturnScreen === 'online'){
+      if (net.isHost && net.room?.phase === 'lobby' && i < net.room.mapCount){
+        net.configureRoom(i); sfx('click');
+      }
+      return;
+    }
     mapIndex = i; buildGround();
     persistPreferences();
-    if (net.room && net.room.phase === 'lobby' && net.isHost) net.configureRoom(i);
     refreshMapSel(); sfx('click');
   };
   mapGrid.appendChild(card);
@@ -4331,8 +4699,7 @@ MAPS.forEach((m, i) => {
 });
 buildGround();          // 恢复当前选中地图的地面
 refreshMapSel();
-let mapReturnScreen = 'menu';
-btnMap.onclick = () => { mapReturnScreen = 'menu'; setScreen('mapsel'); sfx('click'); };
+btnMap.onclick = () => { mapReturnScreen = 'menu'; refreshMapSel(); setScreen('mapsel'); sfx('click'); };
 document.getElementById('btnMapBack').onclick = () => { setScreen(mapReturnScreen); sfx('click'); };
 
 /* ---------- 多人联机大厅 ---------- */
@@ -4344,6 +4711,8 @@ const btnToyProfile = document.getElementById('btnToyProfile');
 const btnCreateRoom = document.getElementById('btnCreateRoom');
 const btnJoinP2P = document.getElementById('btnJoinP2P');
 const onlineJoin = document.getElementById('onlineJoin');
+const onlineSetup = document.getElementById('onlineSetup');
+const roomActions = document.getElementById('roomActions');
 const roomCodePanel = document.getElementById('roomCodePanel');
 const roomCodeStepText = document.getElementById('roomCodeStep');
 const roomCodeShow = document.getElementById('roomCodeShow');
@@ -4352,7 +4721,10 @@ const roomCodeEnter = document.getElementById('roomCodeEnter');
 const roomCodeInput = document.getElementById('roomCodeInput');
 const roomPanel = document.getElementById('roomPanel');
 const roomPlayers = document.getElementById('roomPlayers');
-const roomMeta = document.getElementById('roomMeta');
+const roomMetaCode = document.getElementById('roomMetaCode');
+const roomMetaMap = document.getElementById('roomMetaMap');
+const roomMetaCount = document.getElementById('roomMetaCount');
+const roomMapPreview = document.getElementById('roomMapPreview');
 const onlineStatus = document.getElementById('onlineStatus');
 const btnReady = document.getElementById('btnReady');
 const btnRoomStart = document.getElementById('btnRoomStart');
@@ -4397,13 +4769,6 @@ function setRoomRequestBusy(busy){
   btnJoinP2P.disabled = roomRequestBusy;
 }
 
-/* ---------- 信令：两台手机之间人肉互发一次「码」 ----------
-   这是没有信令服务时的兜底路径：offer/answer 只能靠玩家自己发给对方
-   （微信、面对面念都行）。三个阶段：
-     host      房主出邀请码，同时等着粘对方的应答码
-     guest-in  客机先粘房主的邀请码
-     guest-out 客机产出应答码，发回去等房主粘贴
-   连上以后（房里有 2 个人）这一整块就收起来，换成正常的房间面板。 */
 /* ---------- 6 位房间码 ----------
    走房间服务器（`multiplayer.js` + `server/`）：房主开房拿一个 6 位码，
    队友输进去就进同一间房，2~4 人，不要求在同一个网络里。
@@ -4411,14 +4776,22 @@ function setRoomRequestBusy(busy){
 const ROOM_CODE_CHARS = /[^ABCDEFGHJKLMNPQRSTUVWXYZ23456789]/g;
 const ROOM_CAPACITY = 4;
 let roomStage = '';
+function refreshRoomPanels(){
+  const joined = !!net.room;
+  const setup = !joined && !roomStage;
+  onlineSetup.classList.toggle('hidden', !setup);
+  onlineJoin.classList.toggle('hidden', !setup);
+  roomPanel.classList.toggle('hidden', !joined);
+  roomActions.classList.toggle('hidden', !joined);
+}
 function setRoomStage(stage){
   roomStage = stage;
   roomCodePanel.classList.toggle('hidden', !stage);
   roomCodeShow.classList.toggle('hidden', stage !== 'host');
   roomCodeEnter.classList.toggle('hidden', stage !== 'guest');
-  onlineJoin.classList.toggle('hidden', !!stage || !!net.room);
+  refreshRoomPanels();
   if (stage === 'host'){
-    roomCodeStepText.textContent = '把这个房间码告诉队友，让他在「我加入」里输进去';
+    roomCodeStepText.textContent = '正在创建房间';
   } else if (stage === 'guest'){
     roomCodeStepText.textContent = '输入房主给你的 6 位房间码';
     roomCodeInput.value = '';
@@ -4455,16 +4828,19 @@ function onlineConsentGranted(){
 }
 function renderRoom(){
   const room = net.room;
-  // 人齐了就把房间码那一块收起来，码已经没用了
-  if (room && room.players.length >= 2 && roomStage) setRoomStage('');
-  onlineJoin.classList.toggle('hidden', !!room || !!roomStage);
-  roomPanel.classList.toggle('hidden', !room);
+  if (room && roomStage) setRoomStage('');
+  else refreshRoomPanels();
   if (!room) return;
   const capacity = room.capacity || 2;
-  roomMeta.textContent = (net.isHost ? '你是房主 · ' : '') +
-    '房间码 ' + (room.code || '——') + ' · ' +
-    '地图：' + MAPS[room.mapIndex || 0].name + ' · ' +
-    room.players.length + '/' + capacity + ' 人';
+  const selectedMap = room.mapIndex || 0;
+  roomMetaCode.textContent = room.code || '——';
+  roomMetaMap.textContent = MAPS[selectedMap].name;
+  roomMetaCount.textContent = room.players.length + '/' + capacity + ' 人';
+  if (roomMapPreview.dataset.map !== String(selectedMap)){
+    const thumb = mapCards[selectedMap].querySelector('canvas');
+    roomMapPreview.getContext('2d').drawImage(thumb, 0, 0);
+    roomMapPreview.dataset.map = selectedMap;
+  }
   roomPlayers.innerHTML = '';
   const bySlot = new Map(room.players.map(p => [p.slot,p]));
   for (let slot = 0; slot < capacity; slot++){
@@ -4485,12 +4861,13 @@ function renderRoom(){
   const self = room.players.find(p => p.id === net.selfId);
   btnReady.textContent = self && self.ready ? '取消准备' : '准备';
   btnReady.disabled = room.phase !== 'lobby';
-  btnRoomMap.disabled = !net.isHost || room.phase !== 'lobby';
+  btnRoomMap.classList.toggle('hidden', !net.isHost);
+  btnRoomMap.disabled = room.phase !== 'lobby';
   btnRoomStart.classList.toggle('hidden', !net.isHost);
   const allReady = room.players.length >= 2 && room.players.every(p => p.ready && p.connected !== false);
   btnRoomStart.disabled = room.phase !== 'lobby' || !allReady;
   setOnlineStatus(room.phase === 'lobby'
-    ? (allReady ? '全员已准备，房主可以开始。' : '至少 2 人，所有人准备后由房主开始。')
+    ? (allReady ? '全员已准备' : room.players.length < 2 ? '把房间码发给队友' : '全员准备后开始战斗')
     : '战局进行中', allReady ? 'ok' : '');
 }
 
@@ -4522,8 +4899,7 @@ function beginOnlineMatch(message){
   showTouchGuide();
   refreshNetHud();
   if (netMode === 'host'){
-    lastSnapshotSent = 0;
-    net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
+    sendHostSnapshot(performance.now());
   }
 }
 
@@ -4544,10 +4920,11 @@ function leaveMultiplayer(showOnline, reason){
 }
 
 const btnOnline = document.getElementById('btnOnline');
-if (ONLINE_RUNTIME_ENABLED) btnOnline.classList.remove('hidden');
+btnOnline.classList.toggle('hidden', !ONLINE_RUNTIME_ENABLED);
 btnOnline.onclick = () => {
   if (!ONLINE_RUNTIME_ENABLED) return;
   onlineServer.value = ONLINE_ALLOW_CUSTOM_SERVER ? net.url : ONLINE_SERVER_URL;
+  if (!net.room) setOnlineStatus('');
   setScreen('online');
   renderRoom();
   sfx('click');
@@ -4562,9 +4939,8 @@ btnCreateRoom.onclick = async () => {
   setOnlineStatus('正在连接服务器…');
   try {
     onlineServer.value = net.setServerUrl(ONLINE_ALLOW_CUSTOM_SERVER ? onlineServer.value : ONLINE_SERVER_URL);
-    const room = await net.createRoom(currentName(), ROOM_CAPACITY);
-    roomCodeBig.textContent = room.code;
-    setOnlineStatus('房间码 ' + room.code + ' —— 告诉队友，他输进去就能进来。', 'ok');
+    await net.createRoom(currentName(), ROOM_CAPACITY);
+    renderRoom();
   } catch (error){
     setRoomStage('');
     setOnlineStatus(error.message || '开房失败，稍后再试', 'error');
@@ -4577,7 +4953,7 @@ btnJoinP2P.onclick = () => {
   if (!onlineConsentGranted()) return;
   audioInit();
   setRoomStage('guest');
-  setOnlineStatus('输入房主给你的 6 位房间码。');
+  setOnlineStatus('');
 };
 // 只留房间码字母表里的字符并自动转大写：
 // 服务端是大小写敏感的，让人因为输了小写而进不去太蠢了
@@ -4616,7 +4992,7 @@ btnReady.onclick = () => {
   if (self) net.setReady(!self.ready);
 };
 btnRoomStart.onclick = () => { audioInit(); net.startMatch(); };
-btnRoomMap.onclick = () => { mapReturnScreen = 'online'; setScreen('mapsel'); sfx('click'); };
+btnRoomMap.onclick = () => { mapReturnScreen = 'online'; refreshMapSel(); setScreen('mapsel'); sfx('click'); };
 document.getElementById('btnLeaveRoom').onclick = () => leaveMultiplayer(true);
 document.getElementById('btnOnlineBack').onclick = () => {
   if (net.room) net.leaveRoom();
@@ -4631,6 +5007,7 @@ net.addEventListener('room.state', event => {
   const message = event.detail;
   if (net.room) net.room.capacity = Number(message.capacity)||2;
   renderRoom(); refreshNetHud();
+  if (state === 'mapsel' && mapReturnScreen === 'online') refreshMapSel();
   if (net.room && net.room.phase === 'lobby') restoringSavedSession = false;
   if (net.room && net.room.phase === 'playing' && netMode === 'solo' && restoringSavedSession){
     restoringSavedSession = false;
@@ -4660,8 +5037,7 @@ net.addEventListener('room.state', event => {
     }
     if (state === 'play' && livingPlayers().length === 0) gameOver();
     if (net.room.phase === 'playing'){
-      lastSnapshotSent = performance.now();
-      net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
+      sendHostSnapshot(performance.now());
     }
   }
 });
@@ -4770,6 +5146,19 @@ document.getElementById('btnStart').onclick = () => {
 };
 document.getElementById('btnHelp').onclick  = () => setScreen('help');
 document.getElementById('btnBack').onclick  = () => setScreen('menu');
+const btnSettings = document.getElementById('btnSettings');
+const btnSettingsBack = document.getElementById('btnSettingsBack');
+function closeSettings(){
+  setScreen('menu');
+  btnSettings.focus({ preventScroll:true });
+  sfx('click');
+}
+btnSettings.onclick = () => {
+  setScreen('settings');
+  document.getElementById('btnAim').focus({ preventScroll:true });
+  sfx('click');
+};
+btnSettingsBack.onclick = closeSettings;
 document.getElementById('btnResume').onclick= () => setScreen('play');
 document.getElementById('btnQuit').onclick  = () => setScreen('menu');
 document.getElementById('btnRetry').onclick = () => {
@@ -4802,6 +5191,10 @@ function loop(now){
       else if (!p.ring){ p.x += p.vx*dt; p.y += p.vy*dt; }
     }
     if (shake > 0) shake = Math.max(0, shake - dt*30);
+  }
+  // 首条结算快照可能与上一帧间隔过短，阵亡动画期间按原频率继续同步。
+  if (netMode === 'host' && (state === 'play' || state === 'dying') && now - lastSnapshotSent >= 50){
+    sendHostSnapshot(now);
   }
   if (state === 'play' || state === 'dying' || state === 'pause') render();
   requestAnimationFrame(loop);

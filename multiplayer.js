@@ -8,6 +8,7 @@
 (function exposeMultiplayerClient(global){
   const SESSION_KEY = "zombie-world-multiplayer-session";
   const SERVER_KEY = "zombie-world-multiplayer-server";
+  const CLASSIC_MAP_COUNT = 5, MAP_COUNT = 6;
   const SERVER_MESSAGE_WINDOW_MS = 10_000;
   const SERVER_MESSAGE_MAX_COUNT = 400;
   const SERVER_MESSAGE_MAX_CHARS = 512 * 1024;
@@ -362,11 +363,15 @@
           });
           return;
         }
+        const mapCount = Number.isInteger(message.mapCount)
+          ? Math.max(CLASSIC_MAP_COUNT, Math.min(MAP_COUNT, message.mapCount))
+          : CLASSIC_MAP_COUNT;
         this.room = {
           code:String(message.code),
           hostId:message.hostId.slice(0,80),
           phase:message.phase,
-          mapIndex:Number.isInteger(message.mapIndex) ? Math.max(0, Math.min(4, message.mapIndex)) : 0,
+          mapCount,
+          mapIndex:Number.isInteger(message.mapIndex) ? Math.max(0, Math.min(mapCount - 1, message.mapIndex)) : 0,
           capacity:Number.isInteger(message.capacity) ? Math.max(2, Math.min(4, message.capacity)) : 4,
           players:safePlayers(message.players)
         };
@@ -387,7 +392,7 @@
       } else if (message.type === "match.start" && this.room){
         this.room.phase = "playing";
         this.room.mapIndex = Number.isInteger(message.mapIndex)
-          ? Math.max(0, Math.min(4, message.mapIndex))
+          ? Math.max(0, Math.min(this.room.mapCount - 1, message.mapIndex))
           : this.room.mapIndex;
         if (Array.isArray(message.players)) this.room.players = safePlayers(message.players);
         message.mapIndex = this.room.mapIndex;

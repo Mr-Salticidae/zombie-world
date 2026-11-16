@@ -68,7 +68,7 @@
 </div>
 <button id="swapBtn"><b>换枪</b><i id="swapName">手枪</i></button>
 <button id="ultBtn">无双</button>
-<button id="pauseBtn">❚❚</button>
+<button id="pauseBtn" aria-label="暂停游戏">❚❚</button>
 
 <div id="touchGuide" class="hidden">
   <div class="tg-half tg-left"><b>① 左半边</b>按住拖动<br>控制移动</div>
@@ -79,132 +79,171 @@
 <!-- 波间商店：浮在战斗层之上的一层，不参与 state。
      这样联机时它不会把战局暂停掉（房主的波次照常推进），
      单人时也不用为了开个商店去动状态机。 -->
-<div id="shop" class="hidden">
+<div id="shop" class="hidden" aria-labelledby="shopTitle">
   <div class="shop-box">
     <div class="shop-head">
-      <b class="shop-title">波间补给</b>
+      <h2 class="shop-title" id="shopTitle">波间补给</h2>
       <span class="shop-wallet">金币 <b id="shopCash">0</b></span>
     </div>
     <div class="shop-grid" id="shopGrid"></div>
     <div class="shop-foot">
       <span id="shopFoot">买完点「开打」</span>
-      <button class="btn" id="btnShopGo">开 打</button>
+      <button type="button" class="ui-action ui-primary" id="btnShopGo">下一波</button>
     </div>
-    <div class="shop-note">只卖消耗品 —— 枪靠连击解锁，钱买不到</div>
   </div>
 </div>
 
 <div id="menu" class="screen">
-  <div class="float-z z1">🧟</div>
-  <div class="float-z z2">🧟‍♂️</div>
-  <div class="float-z z3">🧟‍♀️</div>
-  <div class="float-z z4">🧟</div>
-  <h1 class="logo">僵尸<span>危机</span></h1>
-  <div class="sub">方 块 头 · 经 典 复 刻 版</div>
-  <div class="badges">
-    <div class="badge"><b>9</b>种武器</div>
-    <div class="badge"><b>5</b>张地图</div>
-    <div class="badge"><b>5</b>级BOSS</div>
-    <div class="badge">无双<b>大招</b></div>
-  </div>
-  <div style="height:20px"></div>
-  <button class="btn" id="btnStart">▶ 单人游戏</button>
-  <button class="btn online" id="btnOnline">◉ 多人联机</button>
-  <!-- 排行榜依赖 Toy JS SDK，拿不到 SDK 的环境（本地开发、站外托管）保持隐藏，
-       不留一个点了没反应的按钮 -->
-  <button class="btn minor hidden" id="btnRank">🏆 排行榜</button>
-  <button class="btn minor" id="btnDiff">难度：标准</button>
-  <button class="btn minor" id="btnQuality">画质：自动</button>
-  <!-- 转屏按钮同样是「拿得到能力才出现」：站外和 PC 上保持隐藏，
-       不留一个点了没反应的按钮（和排行榜入口一个规矩） -->
-  <button class="btn minor hidden" id="btnScreen">屏幕方向：竖屏</button>
-  <button class="btn minor" id="btnMode">操作模式：键盘经典</button>
-  <button class="btn minor" id="btnAim">自动瞄准：开</button>
-  <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
-  <button class="btn minor" id="btnHelp">操作说明</button>
-  <div id="cloudSaveStatus" class="cloud-save-status hidden" role="status"></div>
-  <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
-</div>
-
-<div id="online" class="screen hidden">
-  <h1 class="logo online-logo" style="font-size:min(8vw,48px)">多人<span>联机</span></h1>
-  <div class="sub">2~4 人 · 任意网络都能一起玩</div>
-  <div class="online-panel">
-    <div class="online-howto">
-      一个点「我开房」拿一个 <b>6 位房间码</b>，其他人点「我加入」输进去就同房了。<br>
-      <b>不需要在同一个网络</b>，各在各家也能一起打，最多 4 个人。<br>
-      掉线有 10 秒重连窗口；队友倒下后，队伍撑过这一波他就能复活。
-    </div>
-    <div class="online-profile-row">
-      <label class="online-field">
-        <span>玩家昵称</span>
-        <input id="onlineName" maxlength="12" autocomplete="nickname" placeholder="幸存者">
-      </label>
-      <button class="tiny-btn hidden" id="btnToyProfile" type="button">使用 B站昵称</button>
-    </div>
-    <label class="online-field hidden" id="onlineServerField">
-      <span>联机服务器</span>
-      <input id="onlineServer" inputmode="url" autocomplete="url" placeholder="ws://localhost:8080/ws">
-    </label>
-    <label class="online-consent">
-      <input id="onlineConsent" type="checkbox">
-      <span>我同意通过房间服务器向队友同步昵称、操作输入和战局状态。</span>
-    </label>
-    <div id="onlineJoin" class="online-actions">
-      <button class="btn" id="btnCreateRoom">我开房 · 出房间码</button>
-      <button class="btn minor" id="btnJoinP2P">我加入 · 输房间码</button>
-    </div>
-    <!-- 6 位房间码：走房间服务器（2~4 人，不要求同一个网络）。
-         码的字母表去掉了 I O 0 1，念出来不会错。 -->
-    <div id="roomCodePanel" class="hidden">
-      <div id="roomCodeStep" class="signal-step"></div>
-      <div id="roomCodeShow" class="hidden">
-        <div class="room-code" id="roomCodeBig">····</div>
+  <div class="home-shell">
+    <header class="home-hero">
+      <h1 class="logo">僵尸<span>危机</span></h1>
+      <p class="home-edition">方块头 · 经典复刻版</p>
+    </header>
+    <div class="home-panel">
+      <div class="home-play" role="group" aria-label="游戏模式">
+        <button type="button" class="home-action home-primary" id="btnStart">
+          <span>单人游戏</span><span class="home-play-icon" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="home-action home-secondary hidden" id="btnOnline">
+          <span>多人联机</span><span class="home-party">2–4 人</span>
+        </button>
       </div>
-      <div id="roomCodeEnter" class="hidden">
-        <input id="roomCodeInput" class="room-code-input" inputmode="latin" autocapitalize="characters"
-               maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false">
-        <button class="btn" id="btnRoomCodeGo">加 入</button>
+      <div class="home-run" role="group" aria-label="单人开局设置">
+        <button type="button" class="home-tile" id="btnMap">
+          <span class="home-label">地图</span>
+          <strong class="option-value">沙漠荒野</strong><span class="home-arrow" aria-hidden="true">›</span>
+        </button>
+        <button type="button" class="home-tile" id="btnDiff">
+          <span class="home-label">难度</span>
+          <strong class="option-value">标准</strong><span class="home-arrow" aria-hidden="true">↻</span>
+        </button>
       </div>
-      <button class="btn minor" id="btnRoomCodeCancel">取消</button>
+      <nav class="home-links" aria-label="更多入口">
+        <button type="button" class="hidden" id="btnRank">排行榜</button>
+        <button type="button" id="btnHelp">操作说明</button>
+        <button type="button" id="btnSettings">设置</button>
+      </nav>
     </div>
-    <div id="roomPanel" class="hidden">
-      <div id="roomMeta" class="room-meta"></div>
-      <div id="roomPlayers" class="room-players"></div>
-      <div class="room-actions">
-        <button class="btn minor" id="btnRoomMap">地图</button>
-        <button class="btn minor" id="btnReady">准备</button>
-        <button class="btn" id="btnRoomStart">开始战斗</button>
-      </div>
-    </div>
-    <div id="onlineStatus" class="online-status" role="status">输入昵称，然后一个人开房、一个人加入</div>
-  </div>
-  <div class="online-footer">
-    <button class="btn minor" id="btnLeaveRoom">离开房间</button>
-    <button class="btn minor" id="btnOnlineBack">返回主菜单</button>
   </div>
 </div>
 
-<div id="mapsel" class="screen hidden">
-  <h1 class="logo" style="font-size:min(8vw,44px)">选择<span>地图</span></h1>
-  <div class="sub" style="letter-spacing:.32em">点 击 卡 片 选 择 战 场</div>
-  <div id="mapgrid"></div>
-  <button class="btn minor" id="btnMapBack" style="margin-top:26px">返回主菜单</button>
+<div id="settings" class="screen hidden" aria-labelledby="settingsTitle">
+  <div class="settings-panel">
+    <h1 id="settingsTitle">设置</h1>
+    <div class="settings-options">
+      <button type="button" class="settings-option" id="btnAim">
+        <span>自动瞄准</span><strong class="option-value">开</strong>
+      </button>
+      <button type="button" class="settings-option" id="btnQuality">
+        <span>画质</span><strong class="option-value">自动</strong>
+      </button>
+      <button type="button" class="settings-option hidden" id="btnScreen">
+        <span>屏幕方向</span><strong class="option-value">竖屏</strong>
+      </button>
+      <button type="button" class="settings-option" id="btnMode">
+        <span>键鼠操作</span><strong class="option-value">键盘经典</strong>
+      </button>
+    </div>
+    <div id="cloudSaveStatus" class="cloud-save-status hidden" role="status"></div>
+    <button type="button" class="ui-action settings-back" id="btnSettingsBack">返回主菜单</button>
+  </div>
 </div>
 
-<div id="help" class="screen hidden">
-  <div class="help-box">
+<div id="online" class="screen page-screen hidden" aria-labelledby="onlineTitle">
+  <div class="page-frame room-frame">
+    <header class="page-head">
+      <button type="button" class="ui-action ui-back" id="btnOnlineBack">‹ 返回</button>
+      <h1 id="onlineTitle">多人联机</h1>
+      <span class="page-meta">2–4 人</span>
+    </header>
+    <div class="page-body online-panel">
+      <div id="onlineSetup" class="online-setup">
+        <div class="online-profile-row">
+          <label class="online-field">
+            <span>玩家昵称</span>
+            <input id="onlineName" maxlength="12" autocomplete="nickname" placeholder="幸存者">
+          </label>
+          <button class="ui-action hidden" id="btnToyProfile" type="button">使用 B 站昵称</button>
+        </div>
+        <label class="online-field hidden" id="onlineServerField">
+          <span>联机服务器</span>
+          <input id="onlineServer" inputmode="url" autocomplete="url" placeholder="ws://localhost:8080/ws">
+        </label>
+        <label class="online-consent">
+          <input id="onlineConsent" type="checkbox">
+          <span>我同意通过房间服务器向队友同步昵称、操作输入和战局状态。</span>
+        </label>
+      </div>
+      <div id="roomCodePanel" class="room-code-panel hidden">
+        <p id="roomCodeStep" class="room-code-step"></p>
+        <div id="roomCodeShow" class="hidden">
+          <div class="room-code" id="roomCodeBig">······</div>
+        </div>
+        <div id="roomCodeEnter" class="hidden">
+          <input id="roomCodeInput" class="room-code-input" inputmode="latin" autocapitalize="characters"
+                 maxlength="6" placeholder="XXXXXX" autocomplete="off" spellcheck="false" aria-label="六位房间码">
+          <button type="button" class="ui-action ui-primary" id="btnRoomCodeGo">加入</button>
+        </div>
+        <button type="button" class="ui-action" id="btnRoomCodeCancel">取消</button>
+      </div>
+      <div id="roomPanel" class="room-panel hidden">
+        <div id="roomMeta" class="room-meta">
+          <div class="room-meta-code"><span>房间码</span><strong id="roomMetaCode"></strong></div>
+          <div class="room-meta-info">
+            <strong id="roomMetaMap"></strong><span id="roomMetaCount"></span>
+          </div>
+        </div>
+        <div class="room-board">
+          <canvas id="roomMapPreview" class="room-preview" width="224" height="126" aria-hidden="true"></canvas>
+          <div id="roomPlayers" class="room-players"></div>
+        </div>
+      </div>
+    </div>
+    <footer class="page-foot room-foot">
+      <div id="onlineStatus" class="online-status" role="status"></div>
+      <div id="onlineJoin" class="room-actions">
+        <button type="button" class="ui-action ui-primary" id="btnCreateRoom">创建房间</button>
+        <button type="button" class="ui-action" id="btnJoinP2P">加入房间</button>
+      </div>
+      <div id="roomActions" class="room-actions hidden">
+        <button type="button" class="ui-action" id="btnLeaveRoom">离开</button>
+        <button type="button" class="ui-action" id="btnRoomMap">地图</button>
+        <button type="button" class="ui-action" id="btnReady">准备</button>
+        <button type="button" class="ui-action ui-primary" id="btnRoomStart">开始战斗</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div id="mapsel" class="screen page-screen hidden" aria-labelledby="mapTitle">
+  <div class="page-frame map-frame">
+    <header class="page-head">
+      <button type="button" class="ui-action ui-back" id="btnMapBack">‹ 返回</button>
+      <h1 id="mapTitle">选择地图</h1>
+    </header>
+    <div class="page-body" id="mapBody"><div id="mapgrid"></div></div>
+  </div>
+</div>
+
+<div id="help" class="screen page-screen hidden" aria-labelledby="helpTitle">
+  <div class="page-frame">
+    <header class="page-head">
+      <button type="button" class="ui-action ui-back" id="btnBack">‹ 返回</button>
+      <h1 id="helpTitle">操作说明</h1>
+    </header>
+    <div class="page-body help-box">
     <!-- 手机上第一屏只给「马上要用的四件事」。
          这一屏原来是一千六百字的大段文字，手机要滚五六屏才到底，
          底部的「触屏诊断」按钮因此谁也找不到。其余全部折进 <details>，
          想看的人点开，不看的人一屏就走。 -->
     <div class="help-quick">
-      <h2>▍手机上就这四件事</h2>
-      <div class="hq-row"><span class="hq-k">左半边</span><span>按住拖动 = 走</span></div>
-      <div class="hq-row"><span class="hq-k">右半边</span><span>按住 = 开火，不用瞄；拖动可以自己选方向</span></div>
-      <div class="hq-row"><span class="hq-k">换枪</span><span>点右下角<b>换枪</b>，或直接点最下面那排武器格</span></div>
-      <div class="hq-row"><span class="hq-k">无双</span><span>右下角红圆键　·　<b>暂停</b>点左上角 ❚❚</span></div>
-      <p class="hq-tip">竖屏横屏都能玩，不用特意转屏。一波打完会自动弹出商店。</p>
+      <h2>触屏操作</h2>
+      <div class="help-tiles">
+        <div class="hq-row"><strong>移动</strong><span>按住左半边拖动</span></div>
+        <div class="hq-row"><strong>射击</strong><span>按住右半边，拖动可瞄准</span></div>
+        <div class="hq-row"><strong>换枪</strong><span>点右下角「换枪」或底部武器格</span></div>
+        <div class="hq-row"><strong>无双 / 暂停</strong><span>右下角放无双，左上角暂停</span></div>
+      </div>
     </div>
 
     <details>
@@ -214,7 +253,7 @@
       <b>换武器</b>：点右下角 <b>换枪</b> 循环切换（自动跳过没子弹的）；也可以<b>直接点最下面那排武器格</b>指定一把——
       左半边是走位区，压在武器格上照样能拖着走，<b>只点一下不拖</b>才算换枪。<br>
       <b>竖屏也能玩</b>：竖屏自动换成竖版视野，横过来是宽视野。<br>
-      <b>转不动屏？</b>在 B站 App 里点主菜单或暂停页的<b>屏幕方向</b>，由 App 来转——
+      <b>转不动屏？</b>在 B 站 App 里通过主菜单「设置」或暂停页切换<b>屏幕方向</b>——
       App 内嵌页面常常被锁着竖屏，手动转是转不过来的。
     </details>
 
@@ -229,7 +268,7 @@
 
     <details>
       <summary>自动瞄准是怎么判的</summary>
-      主菜单与暂停页可开关，默认开。<b>没在自己瞄的时候</b>——键盘经典模式、或手机按住右半边不拖——
+      主菜单「设置」与暂停页可开关，默认开。<b>没在自己瞄的时候</b>——键盘经典模式、或手机按住右半边不拖——
       枪口自动跟住范围内<b>最近的敌人</b>，被锁的那只身上有黄色括号。
       <b>自己在瞄的时候</b>——鼠标、或拖动右摇杆——只在准星附近做小角度吸附，方向仍然听你的。
       锁定半径跟着枪走：喷火器只锁贴脸的，火箭筒能锁到屏幕边；超出屏幕的一律不锁。
@@ -244,17 +283,19 @@
       击杀掉<b>金币</b>，走近自动飞过来（放久了吸得更远）。普通僵尸 <b>2</b>、红恶魔 <b>8</b>、BOSS <b>24~88</b>；
       金币<b>不受连击倍数影响</b>。<br>
       一波打完弹出<b>波间补给</b>：<b>弹药包</b>（每把已解锁的枪一格，越靠后解锁的越贵）、
-      <b>医疗包</b>（+35 生命 / 40）、<b>无双充能</b>（+1 次 / 120，最多存 2 次）。买完点<b>「开打」</b>进下一波。<br>
+      <b>医疗包</b>（+35 生命 / 40）、<b>无双充能</b>（+1 次 / 120，最多存 2 次）。单人买完点<b>「下一波」</b>继续。<br>
       <b>只卖消耗品，枪买不到</b>——枪一律靠连击倍数解锁。金币<b>只在这一局有效</b>，重开归零，不影响排行榜。
     </details>
 
     <details>
       <summary>游戏规则与解锁</summary>
-      抵御四周涌来的<b>方块头僵尸</b>与会喷火球的<b>红恶魔</b>。<b>每波一只 BOSS，前五波五级递进</b>：
+      抵御四周涌来的<b>方块头僵尸</b>与会喷火球的<b>红恶魔</b>。<b>每波一只 BOSS</b>：
       壮汉巨尸（召唤）→ 掠行猎尸（连环冲锋+毒吐）→ 碎地暴尸（召唤/冲锋/震地）→
       灾祸巨像（再加全向弹幕）→ <b>僵尸博士</b>（巨大体型·全技能·毒池·残血狂暴）。
       第 6 波起 BOSS 在前四级之间<b>轮转</b>并逐波变强，<b>每逢 5 的倍数波</b>僵尸博士再次登场。
       脚下红圈/绿圈是技能预警。击破 BOSS 必掉补给，<b>每波打完还会回复生命</b>。<br>
+      <b>废弃车站</b>：月台入口会提示尸潮方向。盾尸正面挡弹，可以绕侧或引爆油桶。
+      第 3 波会遇上路障巨尸，避开标红的冲锋路线，引它撞黄黑护栏可破防。<br>
       连击倍数达到 <b>×3 / ×5 / ×8 / ×11 / ×13 / ×15 / ×17 / ×20</b> 依次解锁：
       马格南、乌兹、霰弹枪、加特林、手雷、油桶、喷火器、火箭筒。
       <b>解锁不会把枪从手里换掉</b>。受到伤害连击减半。<br>
@@ -262,48 +303,74 @@
       <b>排行榜</b>：主菜单进，分<b>得分榜</b>与<b>坚守波数榜</b>。阵亡结算页可上传成绩（<b>只统计标准难度</b>）。<br>
       <b>云存档</b>：登录 B 站后可跨设备同步难度、默认地图和自动瞄准。离线时设置保存在本机。
     </details>
+      <button type="button" class="ui-action help-diagnostic" id="btnTouchDbg">触屏诊断：关</button>
+    </div>
   </div>
-  <!-- 触屏诊断：iOS / App 内嵌 WebView 上的触摸问题只能靠别人的真机，
-       打开后左上角显示实时触点账目，截一张图就够定位断在哪一环 -->
-  <button class="btn minor" id="btnTouchDbg">触屏诊断：关</button>
-  <button class="btn minor" id="btnBack">返 回</button>
 </div>
 
-<div id="pause" class="screen hidden">
-  <h1 class="logo" style="font-size:min(9vw,48px)">暂 停</h1>
-  <button class="btn" id="btnResume">继续游戏</button>
-  <button class="btn minor" id="btnMode2">操作模式：键盘经典</button>
-  <button class="btn minor" id="btnAim2">自动瞄准：开</button>
-  <button class="btn minor hidden" id="btnScreen2">屏幕方向：竖屏</button>
-  <button class="btn minor" id="btnQuit">返回主菜单</button>
+<div id="pause" class="screen card-screen hidden" aria-labelledby="pauseTitle">
+  <div class="ui-panel pause-panel">
+    <h1 id="pauseTitle">游戏暂停</h1>
+    <div class="settings-options">
+      <button type="button" class="settings-option" id="btnAim2">
+        <span>自动瞄准</span><strong class="option-value">开</strong>
+      </button>
+      <button type="button" class="settings-option hidden" id="btnScreen2">
+        <span>屏幕方向</span><strong class="option-value">竖屏</strong>
+      </button>
+      <button type="button" class="settings-option" id="btnMode2">
+        <span>键鼠操作</span><strong class="option-value">键盘经典</strong>
+      </button>
+    </div>
+    <div class="panel-actions">
+      <button type="button" class="ui-action ui-primary" id="btnResume">继续游戏</button>
+      <button type="button" class="ui-action" id="btnQuit">返回主菜单</button>
+    </div>
+  </div>
 </div>
 
-<div id="over" class="screen hidden">
-  <div class="deadtitle">你 阵 亡 了</div>
-  <div class="stats" id="finalStats"></div>
-  <div id="overRank" class="over-rank hidden"></div>
-  <button class="btn rank-btn hidden" id="btnUpload">🏆 上传成绩到排行榜</button>
-  <button class="btn" id="btnRetry">重新开始</button>
-  <button class="btn minor" id="btnMenu">返回主菜单</button>
+<div id="over" class="screen card-screen hidden" aria-labelledby="overTitle">
+  <div class="ui-panel result-panel">
+    <h1 id="overTitle">战斗结束</h1>
+    <dl class="result-stats" id="finalStats">
+      <div class="result-stat result-score"><dt>最终得分</dt><dd id="finalScore">0</dd></div>
+      <div class="result-stat"><dt>坚守波数</dt><dd id="finalWave">0</dd></div>
+      <div class="result-stat"><dt>击杀数</dt><dd id="finalKills">0</dd></div>
+      <div class="result-stat"><dt>最高连击</dt><dd id="finalCombo">×1</dd></div>
+      <div class="result-stat"><dt>队伍人数</dt><dd id="finalCount">1</dd></div>
+    </dl>
+    <div class="result-actions">
+      <button type="button" class="ui-action ui-primary" id="btnRetry">重新开始</button>
+      <button type="button" class="ui-action hidden" id="btnUpload">上传成绩到排行榜</button>
+      <div id="overRank" class="over-rank hidden" role="status"></div>
+      <button type="button" class="ui-action" id="btnMenu">返回主菜单</button>
+    </div>
+  </div>
 </div>
 
-<div id="rank" class="screen hidden">
-  <h1 class="logo" style="font-size:min(8vw,44px)">排行<span>榜</span></h1>
-  <div class="sub">仅 统 计 标 准 难 度</div>
-  <div class="rank-tabs" id="rankBoardTabs">
-    <button class="rank-tab on" data-board="1">得分榜</button>
-    <button class="rank-tab" data-board="2">坚守波数</button>
+<div id="rank" class="screen page-screen hidden" aria-labelledby="rankTitle">
+  <div class="page-frame rank-frame">
+    <header class="page-head">
+      <button type="button" class="ui-action ui-back" id="btnRankBack">‹ 返回</button>
+      <h1 id="rankTitle">排行榜</h1>
+      <span class="page-meta">标准难度</span>
+    </header>
+    <div class="rank-filters">
+      <div class="rank-tabs" id="rankBoardTabs" role="group" aria-label="榜单">
+        <button type="button" class="rank-tab on" data-board="1" aria-pressed="true">得分榜</button>
+        <button type="button" class="rank-tab" data-board="2" aria-pressed="false">坚守波数</button>
+      </div>
+      <div class="rank-tabs" id="rankPeriodTabs" role="group" aria-label="周期">
+        <button type="button" class="rank-tab on" data-period="all" aria-pressed="true">总榜</button>
+        <button type="button" class="rank-tab" data-period="week" aria-pressed="false">本周</button>
+      </div>
+    </div>
+    <div class="page-body rank-panel" id="rankPanel">
+      <div id="rankStatus" class="rank-status" role="status">加载中…</div>
+      <ol id="rankList" class="rank-list"></ol>
+    </div>
+    <div id="rankMine" class="rank-mine hidden"></div>
   </div>
-  <div class="rank-tabs" id="rankPeriodTabs">
-    <button class="rank-tab on" data-period="all">总榜</button>
-    <button class="rank-tab" data-period="week">本周</button>
-  </div>
-  <div class="rank-panel">
-    <div id="rankStatus" class="rank-status">加载中…</div>
-    <ol id="rankList" class="rank-list"></ol>
-  </div>
-  <div id="rankMine" class="rank-mine hidden"></div>
-  <button class="btn minor" id="btnRankBack">返 回</button>
 </div>
 
 <div id="netHud" class="hidden">
