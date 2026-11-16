@@ -15,6 +15,8 @@ let viewScale = 1;                 // 一个虚拟像素占几个 CSS 像素
 let renderScale = 1;               // 一个虚拟像素占几个物理像素 = viewScale × dpr，受画质档限制
 let groundScale = 1;               // 地面预渲染倍率，步进 1 / 1.5 / 2
 const ULT_BTN = { x: VW-52, y: VH-104, r: 28 };   // PC 端画在画布里的无双圆钮
+const ULT_DURATION = 12;
+const ULT_KILLS_REQUIRED = 50;
 
 /* ---------- 画质 ----------
    画面糊的根因：画布后备缓冲区一直是 VW×VH 个像素，却被 CSS 拉伸到整块屏幕。
@@ -1243,7 +1245,7 @@ pauseBtn.addEventListener('click', () => {
 let ultLabel = '', swapLabel = '';
 function updateUltBtn(){
   const label = player.ultT > 0 ? Math.ceil(player.ultT) + 's'
-              : (player.ultCharge > 0 ? '无双' : player.ultKills + '/50');
+              : (player.ultCharge > 0 ? '无双' : player.ultKills + '/' + ULT_KILLS_REQUIRED);
   const s = player.ultT > 0 ? 'active' : (player.ultCharge > 0 ? 'ready' : 'charge');
   if (label !== ultLabel){ ultLabel = label; ultBtn.textContent = label; }
   if (s !== ultBtn.dataset.s) ultBtn.dataset.s = s;
@@ -1841,11 +1843,11 @@ function killReward(x, y, baseScore, ownerId){
   kills++; streak++; comboTimer = 9; updateMulti();
   score += baseScore * multiplier;
   dropCoin(x, y, coinValue(baseScore), ownerId);
-  // 大招充能：用掉之后每击杀 50 个重新就绪
+  // 无双最后一帧仍可挥刀，击杀结算可能晚于计时归零或玩家倒地。
   const killer = players.get(ownerId);
-  if (killer && killer.ultCharge <= 0){
+  if (killer && killer.ultCharge <= 0 && killer.ultLastFrame !== frameN){
     killer.ultKills++;
-    if (killer.ultKills >= 50){
+    if (killer.ultKills >= ULT_KILLS_REQUIRED){
       killer.ultKills = 0; killer.ultCharge = 1;
       banners.push({ text:killer.name + ' 大招就绪', sub:'按 R 或点击右下角发动无双', life:2.2 });
       sfx('unlock');
@@ -1866,8 +1868,8 @@ function activateUlt(target){
   const p = target || player;
   if (!p || state !== 'play' || p.alive === false || p.ultCharge <= 0 || p.ultT > 0) return;
   p.ultCharge--;
-  p.ultT = 15; p.swing = 0; p.slashT = 0;
-  banners.push({ text:p.name + ' · 无双时刻！', sub:'双刀乱舞 · 击中吸血 · 持续 15 秒', life:2.4, big:true });
+  p.ultT = ULT_DURATION; p.swing = 0; p.slashT = 0;
+  banners.push({ text:p.name + ' · 无双时刻！', sub:'双刀乱舞 · 击中吸血 · 持续 ' + ULT_DURATION + ' 秒', life:2.4, big:true });
   sfx('unlock'); sfx('wave');
   if (p === player) shake = Math.max(shake, 8);
 }
@@ -1996,7 +1998,8 @@ function updatePlayerFromInput(p, input, dt, now){
   }
 
   if (p.ultT > 0){
-    p.ultT -= dt;
+    p.ultLastFrame = frameN;
+    p.ultT = Math.max(0, p.ultT - dt);
     p.swing += dt * 18;
     p.slashT -= dt;
     if (p.slashT <= 0){
@@ -3498,16 +3501,17 @@ function drawHUD(){
     ctx.lineWidth = 4;
     if (player.ultT > 0){                       // 持续时间倒计时圈
       ctx.strokeStyle = '#fff';
-      ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*player.ultT/15); ctx.stroke();
+      const progress = Math.min(1, player.ultT / ULT_DURATION);
+      ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*progress); ctx.stroke();
     } else if (player.ultCharge <= 0){          // 充能进度圈
       ctx.strokeStyle = '#ffb33e';
-      ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*player.ultKills/50); ctx.stroke();
+      ctx.beginPath(); ctx.arc(ux, uy, 20, -Math.PI/2, -Math.PI/2 + 6.283*player.ultKills/ULT_KILLS_REQUIRED); ctx.stroke();
     }
     ctx.textAlign = 'center';
     ctx.fillStyle = player.ultCharge > 0 || player.ultT > 0 ? '#fff' : '#9c947f';
     ctx.font = 'bold 13px sans-serif';
     ctx.fillText(player.ultT > 0 ? Math.ceil(player.ultT) + 's'
-               : (player.ultCharge > 0 ? '无双' : player.ultKills + '/50'), ux, uy);
+               : (player.ultCharge > 0 ? '无双' : player.ultKills + '/' + ULT_KILLS_REQUIRED), ux, uy);
     ctx.font = '10px sans-serif';
     ctx.fillText(player.ultT > 0 ? '乱舞中' : 'R / 点击', ux, uy + 14);
   }
