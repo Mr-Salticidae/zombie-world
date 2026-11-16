@@ -8,6 +8,10 @@
 (function exposeMultiplayerClient(global){
   const SESSION_KEY = "zombie-world-multiplayer-session";
   const SERVER_KEY = "zombie-world-multiplayer-server";
+  const SERVER_MESSAGE_WINDOW_MS = 10_000;
+  const SERVER_MESSAGE_MAX_COUNT = 400;
+  const SERVER_MESSAGE_MAX_CHARS = 512 * 1024;
+  const SERVER_MESSAGE_MAX_WINDOW_CHARS = 64 * 1024 * 1024;
   const SNAPSHOT_MAX_BUFFERED_BYTES = 64 * 1024;
 
   function storageGet(kind, key){
@@ -29,18 +33,7 @@
     } catch (_) { return false; }
   }
 
-  /* 线上房间服务器的地址。
-     不能靠 location.host 猜：游戏在 Toy 平台上跑在 www.bilibilitoy.com 的 iframe 里，
-     跟服务器根本不同源，猜出来的地址必然是错的。所以这里写死一个默认值，
-     由 localStorage 的 zombie-world-server 覆盖（换服务器 / 真机排查时不用重新过审）。
-     留空 = 回落到 location.host —— 本地开发时游戏就是这台服务器自己发的，正好对得上。
-
-     反过来一条同样重要：服务器那边的 ALLOWED_ORIGINS 必须写 https://www.bilibilitoy.com，
-     不是 bilibili.com。填错的表现是「连接被拒绝」且客户端看不出原因。见 server/deploy/README.md。 */
-  const SERVER_DEFAULT = "wss://tiaozhuxiansheng.com/zombie/ws";
-
   function defaultServerUrl(){
-    if (SERVER_DEFAULT) return SERVER_DEFAULT;
     if (location.protocol === "http:" || location.protocol === "https:"){
       const protocol = location.protocol === "https:" ? "wss:" : "ws:";
       return protocol + "//" + location.host + "/ws";
@@ -116,14 +109,18 @@
       this.reconnectTimer = null;
       this.heartbeatTimer = null;
       this.lastPingAt = 0;
+      this.serverMessageWindowAt = 0;
+      this.serverMessageCount = 0;
+      this.serverMessageChars = 0;
     }
 
     get isHost(){
       return !!(this.room && this.selfId && this.room.hostId === this.selfId);
     }
 
-    hasSavedSession(){
-      return !!readSession();
+    hasSavedSession(expectedUrl){
+      const saved = readSession();
+      return !!saved && (!expectedUrl || saved.url === expectedUrl);
     }
 
     resumeSavedSession(){
@@ -138,6 +135,24 @@
 
     emit(name, detail){
       this.dispatchEvent(new CustomEvent(name, { detail }));
+    }
+
+    acceptServerMessage(data){
+      const now = performance.now();
+      if (!this.serverMessageWindowAt || now - this.serverMessageWindowAt >= SERVER_MESSAGE_WINDOW_MS){
+        this.serverMessageWindowAt = now;
+        this.serverMessageCount = 0;
+        this.serverMessageChars = 0;
+      }
+      const chars = typeof data === "string" ? data.length : Infinity;
+      if (chars > SERVER_MESSAGE_MAX_CHARS ||
+          this.serverMessageCount >= SERVER_MESSAGE_MAX_COUNT ||
+          this.serverMessageChars + chars > SERVER_MESSAGE_MAX_WINDOW_CHARS){
+        return false;
+      }
+      this.serverMessageCount++;
+      this.serverMessageChars += chars;
+      return true;
     }
 
     settleRoomRequest(error, value){
@@ -217,6 +232,15 @@
 
         socket.addEventListener("message", event => {
           if (socket !== this.ws || typeof event.data !== "string") return;
+          if (!this.acceptServerMessage(event.data)){
+            this.emit("error", {
+              type:"error",
+              code:"UNTRUSTED_SERVER",
+              message:"联机服务器发送的数据过大或过于频繁，连接已关闭。"
+            });
+            try { socket.close(1009, "server message limit exceeded"); } catch (_) {}
+            return;
+          }
           let message;
           try { message = JSON.parse(event.data); }
           catch (_) { return; }

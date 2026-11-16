@@ -198,6 +198,28 @@ test("closes a connection that exceeds its per-window message rate", async (t) =
   assert.equal(closeCode, 1008);
 });
 
+test("closes a connection that exceeds its per-window byte budget", async (t) => {
+  const fixture = await startFixture({
+    rateLimitWindowMs: 10_000,
+    rateLimitMaxMessages: 100,
+    rateLimitMaxBytes: 1_500,
+  });
+  t.after(() => fixture.close());
+  const peer = await fixture.peer();
+
+  peer.send({ type:"ping", padding:"x".repeat(800) });
+  await peer.waitFor((message) => message.type === "pong");
+
+  const closed = once(peer.ws, "close");
+  peer.send({ type:"ping", padding:"x".repeat(800) });
+  const error = await peer.waitFor(
+    (message) => message.type === "error" && message.code === "RATE_LIMITED",
+  );
+  assert.equal(error.requestType, "rate-limit");
+  const [closeCode] = await closed;
+  assert.equal(closeCode, 1008);
+});
+
 test("creates, joins, readies, configures and starts a 2-4 player room", async (t) => {
   const fixture = await startFixture();
   t.after(() => fixture.close());

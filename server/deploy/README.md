@@ -73,7 +73,7 @@ sudo systemctl reload caddy
 curl -sS https://你的域名/healthz          # 期望 {"ok":true,...}
 ```
 
-然后把域名填进 `multiplayer.js` 顶部的 `SERVER_DEFAULT`，重新打包发布游戏。
+然后把 WSS 地址填进 `script.js` 的 `ONLINE_SERVER_URL`，重新打包发布游戏。
 
 ## 运维
 

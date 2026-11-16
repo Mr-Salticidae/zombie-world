@@ -45,6 +45,8 @@
   });
 })();
 </script>
+<!-- Toy JS SDK 提供容器、排行榜与云存档能力。 -->
+<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
 </head>
 <body>
 <div id="wrap"><canvas id="game" width="960" height="640"></canvas></div>
@@ -120,6 +122,7 @@
   <button class="btn minor" id="btnAim">自动瞄准：开</button>
   <button class="btn minor" id="btnMap">选择地图：沙漠荒野</button>
   <button class="btn minor" id="btnHelp">操作说明</button>
+  <div id="cloudSaveStatus" class="cloud-save-status hidden" role="status"></div>
   <div class="tip">击杀提升连击倍数解锁武器 · 小心每波的 BOSS · R 键释放无双</div>
 </div>
 
@@ -132,13 +135,20 @@
       <b>不需要在同一个网络</b>，各在各家也能一起打，最多 4 个人。<br>
       掉线有 10 秒重连窗口；队友倒下后，队伍撑过这一波他就能复活。
     </div>
-    <label class="online-field">
-      <span>玩家昵称</span>
-      <input id="onlineName" maxlength="12" autocomplete="nickname" placeholder="幸存者">
+    <div class="online-profile-row">
+      <label class="online-field">
+        <span>玩家昵称</span>
+        <input id="onlineName" maxlength="12" autocomplete="nickname" placeholder="幸存者">
+      </label>
+      <button class="tiny-btn hidden" id="btnToyProfile" type="button">使用 B站昵称</button>
+    </div>
+    <label class="online-field hidden" id="onlineServerField">
+      <span>联机服务器</span>
+      <input id="onlineServer" inputmode="url" autocomplete="url" placeholder="ws://localhost:8080/ws">
     </label>
     <label class="online-consent">
       <input id="onlineConsent" type="checkbox">
-      <span>我同意为联机在两台设备之间直接传输昵称、操作输入与战局状态；不经过任何服务器，也不保存聊天或长期战绩。</span>
+      <span>我同意通过房间服务器向队友同步昵称、操作输入和战局状态。</span>
     </label>
     <div id="onlineJoin" class="online-actions">
       <button class="btn" id="btnCreateRoom">我开房 · 出房间码</button>
@@ -249,7 +259,8 @@
       马格南、乌兹、霰弹枪、加特林、手雷、油桶、喷火器、火箭筒。
       <b>解锁不会把枪从手里换掉</b>。受到伤害连击减半。<br>
       <b>无双大招</b>：<kbd>R</kbd> 或点右下角图标，双刀乱舞并<b>吸血</b>，持续 15 秒；开局自带一次，之后每击杀 <b>50</b> 个敌人充能。<br>
-      <b>排行榜</b>：主菜单进，分<b>得分榜</b>与<b>坚守波数榜</b>。阵亡结算页可上传成绩（<b>只统计标准难度</b>）。
+      <b>排行榜</b>：主菜单进，分<b>得分榜</b>与<b>坚守波数榜</b>。阵亡结算页可上传成绩（<b>只统计标准难度</b>）。<br>
+      <b>云存档</b>：登录 B 站后可跨设备同步难度、默认地图和自动瞄准。离线时设置保存在本机。
     </details>
   </div>
   <!-- 触屏诊断：iOS / App 内嵌 WebView 上的触摸问题只能靠别人的真机，
@@ -303,10 +314,7 @@
   <button id="netLeaveBtn">退出联机</button>
 </div>
 
-<!-- Toy JS SDK：排行榜/云存储走它。放在 script.js 之前且不加 defer，
-     让 script.js 顶层就能确定 window.toy 在不在，从而决定要不要显示排行榜入口。
-     CDN 挂了也只是 window.toy 缺失，游戏本体不受影响。 -->
-<script src="https://s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js"></script>
+<script src="toy-sdk-bridge.js"></script>
 <script src="multiplayer.js"></script>
 <!-- 联机走 multiplayer.js（房间服务器，2~4 人）。
      p2p.js 排在它之后：局域网直连整套保留着，导出成 window.zombiePeerNetwork，

@@ -14,6 +14,7 @@ const DEFAULT_HEARTBEAT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_MESSAGE_BYTES = 512 * 1024;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 10_000;
 const DEFAULT_RATE_LIMIT_MAX_MESSAGES = 600;
+const DEFAULT_RATE_LIMIT_MAX_BYTES = 32 * 1024 * 1024;
 const DEFAULT_MAX_SNAPSHOT_BYTES = 256 * 1024;
 const DEFAULT_SNAPSHOT_INTERVAL_MS = 40;
 const DEFAULT_MAX_BUFFERED_BYTES = 1024 * 1024;
@@ -375,6 +376,7 @@ export function createGameServer(options = {}) {
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   const rateLimitWindowMs = options.rateLimitWindowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS;
   const rateLimitMaxMessages = options.rateLimitMaxMessages ?? DEFAULT_RATE_LIMIT_MAX_MESSAGES;
+  const rateLimitMaxBytes = options.rateLimitMaxBytes ?? DEFAULT_RATE_LIMIT_MAX_BYTES;
   const maxSnapshotBytes = options.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES;
   const snapshotIntervalMs = options.snapshotIntervalMs ?? DEFAULT_SNAPSHOT_INTERVAL_MS;
   const maxBufferedBytes = options.maxBufferedBytes ?? DEFAULT_MAX_BUFFERED_BYTES;
@@ -398,6 +400,9 @@ export function createGameServer(options = {}) {
   }
   if (!Number.isSafeInteger(rateLimitMaxMessages) || rateLimitMaxMessages < 1) {
     throw new TypeError("rateLimitMaxMessages must be a positive safe integer.");
+  }
+  if (!Number.isSafeInteger(rateLimitMaxBytes) || rateLimitMaxBytes < 1024) {
+    throw new TypeError("rateLimitMaxBytes must be a safe integer of at least 1024.");
   }
   for (const [name, value] of Object.entries({
     maxSnapshotBytes,
@@ -845,7 +850,8 @@ export function createGameServer(options = {}) {
       roomCode: null,
       playerId: null,
       lastPongAt: Date.now(),
-      messageTimes: [],
+      messageWindow: [],
+      messageBytes: 0,
       rateLimited: false,
       lastSnapshotAt: 0,
     };
@@ -869,30 +875,34 @@ export function createGameServer(options = {}) {
         const cutoff = now - rateLimitWindowMs;
         let expiredCount = 0;
         while (
-          expiredCount < client.messageTimes.length
-          && client.messageTimes[expiredCount] <= cutoff
+          expiredCount < client.messageWindow.length
+          && client.messageWindow[expiredCount].at <= cutoff
         ) {
+          client.messageBytes -= client.messageWindow[expiredCount].bytes;
           expiredCount += 1;
         }
-        if (expiredCount > 0) client.messageTimes.splice(0, expiredCount);
-        if (client.messageTimes.length >= rateLimitMaxMessages) {
+        if (expiredCount > 0) client.messageWindow.splice(0, expiredCount);
+        const incomingBytes = byteLength(data);
+        if (client.messageWindow.length >= rateLimitMaxMessages ||
+            client.messageBytes + incomingBytes > rateLimitMaxBytes) {
           client.rateLimited = true;
           sendError(
             ws,
             new ProtocolError(
               "RATE_LIMITED",
-              `Message rate exceeds ${rateLimitMaxMessages} per ${rateLimitWindowMs}ms.`,
+              `Message rate exceeds ${rateLimitMaxMessages} messages or ${rateLimitMaxBytes} bytes per ${rateLimitWindowMs}ms.`,
             ),
             "rate-limit",
           );
           ws.close(1008, "Message rate limit exceeded");
           return;
         }
-        client.messageTimes.push(now);
+        client.messageWindow.push({ at:now, bytes:incomingBytes });
+        client.messageBytes += incomingBytes;
         if (isBinary) {
           throw new ProtocolError("BINARY_NOT_SUPPORTED", "Only JSON text messages are accepted.");
         }
-        if (byteLength(data) > maxMessageBytes) {
+        if (incomingBytes > maxMessageBytes) {
           ws.close(1009, "Message too large");
           return;
         }
@@ -1027,6 +1037,7 @@ export function createGameServer(options = {}) {
       maxMessageBytes,
       rateLimitWindowMs,
       rateLimitMaxMessages,
+      rateLimitMaxBytes,
       maxSnapshotBytes,
       snapshotIntervalMs,
       maxBufferedBytes,
@@ -1051,8 +1062,9 @@ if (isDirectRun) {
     .map((origin) => origin.trim())
     .filter(Boolean);
   const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"]);
-  if (!loopbackHosts.has(host) && !allowedOrigins?.length) {
-    console.error("ALLOWED_ORIGINS is required when HOST is not loopback.");
+  const production = runtimeProcess.env.NODE_ENV === "production";
+  if ((production || !loopbackHosts.has(host)) && !allowedOrigins?.length) {
+    console.error("ALLOWED_ORIGINS is required in production or when HOST is not loopback.");
     runtimeProcess.exitCode = 1;
   } else {
     const gameServer = createGameServer({

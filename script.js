@@ -576,7 +576,11 @@ const MAPS = [
   { name:'夜幕街区', base:'#8d9095', patch1:'#797c82', patch2:'#84878c', light:'#9da0a5',
     dark:'#6c6f74', tuft1:'#5d6065', tuft2:'#54575c', pil:['#a3a6ab','#8b8e93','#c8cbd0'] },
 ];
-let mapIndex = 0;
+const MAP_KEY = 'zombie-world-map';
+const storedMapIndex = Number(localStoreGet(MAP_KEY));
+let mapIndex = Number.isInteger(storedMapIndex) && storedMapIndex >= 0 && storedMapIndex < MAPS.length
+  ? storedMapIndex
+  : 0;
 
 // 地面是一整张世界大图，跟着渲染倍率升清但要封顶：2 倍时已是 3840×2560（约 39MB），
 // 再往上手机会吃不住。步进取 1 / 1.5 / 2，跨档才重建，拖窗口不会反复重画。
@@ -715,7 +719,8 @@ const DIFFS = [
     tip:'给能打穿十波的人' },
 ];
 const DIFF_KEY = 'zombie-world-difficulty';
-let diffIndex = 1;
+const storedDifficultyIndex = DIFFS.findIndex(d => d.key === localStoreGet(DIFF_KEY));
+let diffIndex = storedDifficultyIndex >= 0 ? storedDifficultyIndex : 1;
 function DIF(){ return DIFFS[diffIndex]; }
 
 /* ---------- 五级 Boss 体系 ---------- */
@@ -744,12 +749,12 @@ let wave, spawnQueue, devilQueue, spawnTimer, waveRest, score, kills,
 let gameOverTimer = null;
 
 /* ---------- 多人战局：房主权威，客端只发输入/收快照 ---------- */
-// 联机 = 局域网直连（p2p.js）：两台设备连同一个 WiFi，走 WebRTC DataChannel 点对点。
-// 游戏数据全程 P2P；4 位房间号背后那个信令服务只负责接头，递完码就退场。
-// 之前这里关着，是因为当时的联机要一台公网 WSS 服务器，而 Toy 只托管静态包、不跑 Node，
-// 那个按钮点进去必然是「连接中断」。换成 P2P 之后不再依赖任何服务器，入口才重新打开。
-// WSS 那套整个保留在 multiplayer.js / server/ / test/，哪天真有服务器了还能用。
+// 公开版联机使用固定的房间服务器，本地开发可在大厅切换地址。
 const ONLINE_ENABLED = true;
+const ONLINE_SERVER_URL = 'wss://tiaozhuxiansheng.com/zombie/ws';
+const ONLINE_ALLOW_CUSTOM_SERVER = ['localhost','127.0.0.1','[::1]'].includes(location.hostname);
+const ONLINE_RUNTIME_ENABLED = ONLINE_ENABLED &&
+  (!!ONLINE_SERVER_URL || ONLINE_ALLOW_CUSTOM_SERVER);
 const net = window.zombieNetwork;
 const PLAYER_COLORS = ['#3f4652','#79d7ff','#ffcb55','#79e39f'];
 let players = new Map();
@@ -3815,21 +3820,208 @@ function render(){
    ======================================================== */
 const RANK_SCORE = 1, RANK_WAVE = 2;           // 榜1=得分，榜2=坚守波数（榜3 预留）
 const RANK_MAX = 16777215;                     // 平台分数上限
-const RANK_AUTO_KEY = 'zombie-world-rank-auto';
 function toySdk(){ return (typeof window !== 'undefined' && window.toy) || null; }
-function rankReady(){
+const toyBridge = (typeof window !== 'undefined' && window.ZombieToyBridge) || null;
+let toyCapabilities = Object.freeze({
+  getUserProfile:false,
+  getCloudStorage:false, setCloudStorage:false, removeCloudStorage:false,
+  submitScore:false, getRankList:false, getMyRank:false
+});
+function rankReadReady(){
   const t = toySdk();
-  return !!(t && typeof t.getRankList === 'function' && typeof t.submitScore === 'function');
+  return !!(toyCapabilities.getRankList && t && typeof t.getRankList === 'function');
+}
+function rankSubmitReady(){
+  const t = toySdk();
+  return !!(toyCapabilities.submitScore && t && typeof t.submitScore === 'function');
+}
+function myRankReady(){
+  const t = toySdk();
+  return !!(toyCapabilities.getMyRank && t && typeof t.getMyRank === 'function');
+}
+
+/* ---------- 个人云存档：低频偏好，本地优先 ----------
+   Toy Cloud Storage 按“登录用户 + 当前 Toy”隔离，适合跨设备同步设置；
+   不保存实时战局、房间码、重连 token、toyOpenId 或设备相关画质。 */
+const CLOUD_PREFS_KEY = 'zw_prefs_v1';
+const LOCAL_PREFS_KEY = 'zombie-world-prefs-v1';
+const cloudSaveStatus = document.getElementById('cloudSaveStatus');
+let cloudPrefsRevision = 0;
+let pendingCloudPreferences = null;
+let cloudPreferenceWrites = Promise.resolve();
+
+function cloudPrefsReadReady(){
+  return !!(toyCapabilities.getCloudStorage && toyBridge &&
+    typeof toyBridge.getCloudJson === 'function');
+}
+function cloudPrefsWriteReady(){
+  return !!(toyCapabilities.setCloudStorage && toyBridge &&
+    typeof toyBridge.setCloudJson === 'function');
+}
+function setCloudSaveStatus(text, kind){
+  if (!cloudSaveStatus) return;
+  cloudSaveStatus.textContent = text || '';
+  cloudSaveStatus.dataset.kind = kind || '';
+  cloudSaveStatus.classList.toggle('hidden', !text);
+}
+function preferenceSnapshot(updatedAt){
+  return {
+    v:1,
+    updatedAt:Number.isFinite(updatedAt) ? Math.max(0, Math.floor(updatedAt)) : Date.now(),
+    aimAssist:!!aimAssist,
+    difficulty:DIF().key,
+    preferredMap:mapIndex
+  };
+}
+function normalizePreferenceRecord(value, fallback){
+  if (!value || typeof value !== 'object' || value.v !== 1) return null;
+  const base = fallback || preferenceSnapshot(0);
+  const difficulty = DIFFS.some(d => d.key === value.difficulty)
+    ? value.difficulty
+    : base.difficulty;
+  const preferredMap = Number.isInteger(value.preferredMap) &&
+    value.preferredMap >= 0 && value.preferredMap < MAPS.length
+    ? value.preferredMap
+    : base.preferredMap;
+  const timestamp = Number(value.updatedAt);
+  return {
+    v:1,
+    updatedAt:Number.isFinite(timestamp) && timestamp >= 0 ? Math.floor(timestamp) : 0,
+    aimAssist:typeof value.aimAssist === 'boolean' ? value.aimAssist : base.aimAssist,
+    difficulty,
+    preferredMap
+  };
+}
+function readLocalPreferenceRecord(){
+  const fallback = preferenceSnapshot(0);
+  const raw = localStoreGet(LOCAL_PREFS_KEY);
+  if (!raw) return fallback;
+  try { return normalizePreferenceRecord(JSON.parse(raw), fallback) || fallback; }
+  catch (_) { return fallback; }
+}
+function writeLocalPreferenceRecord(record){
+  localStoreSet(LOCAL_PREFS_KEY, JSON.stringify(record));
+  localStoreSet(AIM_KEY, record.aimAssist ? 'on' : 'off');
+  localStoreSet(DIFF_KEY, record.difficulty);
+  localStoreSet(MAP_KEY, String(record.preferredMap));
+}
+function choosePreferenceRecord(localRecord, cloudRecord){
+  if (!cloudRecord) return localRecord;
+  if (!localRecord) return cloudRecord;
+  return cloudRecord.updatedAt >= localRecord.updatedAt ? cloudRecord : localRecord;
+}
+function canApplyCloudPreferences(requestRevision){
+  return requestRevision === cloudPrefsRevision && state === 'menu' && netMode === 'solo';
+}
+function applyPreferenceRecord(record){
+  const nextDiff = DIFFS.findIndex(d => d.key === record.difficulty);
+  const mapChanged = mapIndex !== record.preferredMap;
+  aimAssist = record.aimAssist;
+  if (nextDiff >= 0) diffIndex = nextDiff;
+  mapIndex = record.preferredMap;
+  writeLocalPreferenceRecord(record);
+  if (mapChanged) buildGround();
+  refreshAimBtns();
+  refreshDiffBtn();
+  refreshMapSel();
+}
+function queueCloudPreferences(record){
+  cloudPreferenceWrites = cloudPreferenceWrites.catch(() => {}).then(() =>
+    toyBridge.setCloudJson(CLOUD_PREFS_KEY, record));
+  return cloudPreferenceWrites;
+}
+function persistPreferences(){
+  const revision = ++cloudPrefsRevision;
+  const record = preferenceSnapshot(Date.now());
+  pendingCloudPreferences = null;
+  writeLocalPreferenceRecord(record);
+  if (!cloudPrefsWriteReady()){
+    setCloudSaveStatus('设置已保存在本机', 'local');
+    return Promise.resolve(false);
+  }
+  setCloudSaveStatus('正在同步云存档…');
+  return queueCloudPreferences(record).then(() => {
+    if (revision === cloudPrefsRevision) setCloudSaveStatus('云存档已同步', 'ok');
+    return true;
+  }).catch(() => {
+    if (revision === cloudPrefsRevision){
+      setCloudSaveStatus('云同步暂不可用，设置已保存在本机', 'error');
+    }
+    return false;
+  });
+}
+async function hydrateCloudPreferences(){
+  const requestRevision = cloudPrefsRevision;
+  let localRecord = readLocalPreferenceRecord();
+  if (!cloudPrefsReadReady()){
+    setCloudSaveStatus('设置已保存在本机', 'local');
+    return;
+  }
+  setCloudSaveStatus('正在读取云存档…');
+  try {
+    const cloudValue = await toyBridge.getCloudJson(CLOUD_PREFS_KEY);
+    if (requestRevision !== cloudPrefsRevision) return;
+    const cloudRecord = normalizePreferenceRecord(cloudValue, localRecord);
+    if (!cloudRecord && localRecord.updatedAt === 0){
+      localRecord = { ...localRecord, updatedAt:Date.now() };
+    }
+    const chosen = choosePreferenceRecord(localRecord, cloudRecord);
+    writeLocalPreferenceRecord(chosen);
+    if (canApplyCloudPreferences(requestRevision)) applyPreferenceRecord(chosen);
+    else pendingCloudPreferences = chosen;
+
+    if (chosen === localRecord && cloudPrefsWriteReady() &&
+        (!cloudRecord || localRecord.updatedAt > cloudRecord.updatedAt)){
+      await queueCloudPreferences(localRecord);
+    }
+    if (requestRevision !== cloudPrefsRevision) return;
+    setCloudSaveStatus(canApplyCloudPreferences(requestRevision)
+      ? '云存档已同步'
+      : '云存档已读取，返回主菜单后应用', 'ok');
+  } catch (_) {
+    if (requestRevision === cloudPrefsRevision){
+      setCloudSaveStatus('云同步暂不可用，设置已保存在本机', 'error');
+    }
+  }
+}
+function applyPendingCloudPreferences(){
+  if (!pendingCloudPreferences || state !== 'menu' || netMode !== 'solo') return;
+  const record = pendingCloudPreferences;
+  pendingCloudPreferences = null;
+  applyPreferenceRecord(record);
+  setCloudSaveStatus('云存档已同步', 'ok');
+}
+async function detectToyCapabilities(){
+  // SDK 在独立页面也能声明能力。没有宿主的页面直接走本地存档。
+  const hasToyHost = window.parent !== window || !!window.__TOY_META__?.toy_id;
+  if (!hasToyHost || !toyBridge || typeof toyBridge.detect !== 'function'){
+    setCloudSaveStatus('设置已保存在本机', 'local');
+    return;
+  }
+  try {
+    toyCapabilities = await toyBridge.detect();
+  } catch (_) {
+    setCloudSaveStatus('设置已保存在本机', 'local');
+    return;
+  }
+  const rankButton = document.getElementById('btnRank');
+  const profileButton = document.getElementById('btnToyProfile');
+  if (rankButton) rankButton.classList.toggle('hidden', !rankReadReady());
+  if (profileButton) profileButton.classList.toggle('hidden', !toyCapabilities.getUserProfile);
+  if (state === 'over') refreshOverRank();
+  await hydrateCloudPreferences();
 }
 // 只收标准难度：轻松打得轻松、硬核敌人更多分更高，混进同一个榜这榜就没意义了
 function rankEligible(diffKey){ return diffKey === 'normal'; }
 function clampScore(v){ return Math.max(0, Math.min(RANK_MAX, Math.round(Number(v) || 0))); }
-function rankErrText(e){
+function toyErrText(e, fallback){
   const raw = (e && (e.message || e.msg)) || '';
   const clean = String(raw).replace(/^\[ToySDK\]\s*/, '').trim();
-  return clean || '排行榜暂时不可用，稍后再试';
+  return clean || fallback;
 }
+function rankErrText(e){ return toyErrText(e, '排行榜暂时不可用，稍后再试'); }
 let lastRun = null;        // 结算快照：reset() 会清空全局 score/wave，不能等玩家点按钮时才去读
+let uploadInFlight = null;
 
 /* ---------- 结算页：上传成绩 ---------- */
 const overRank = document.getElementById('overRank');
@@ -3844,44 +4036,52 @@ function setUploadBtn(mode, label){
   if (label) btnUpload.textContent = label;
   btnUpload.classList.toggle('hidden', !mode);
 }
-async function uploadRun(){
+async function uploadRun(run){
   const t = toySdk();
-  if (!t || !lastRun) throw new Error('没有可上传的成绩');
-  await t.submitScore({ board:RANK_SCORE, score:clampScore(lastRun.score) });
-  await t.submitScore({ board:RANK_WAVE,  score:clampScore(lastRun.wave) });
-  lastRun.submitted = true;
-  localStoreSet(RANK_AUTO_KEY, 'on');      // 同意过一次，之后就自动上传，不再每局点一下
+  if (!rankSubmitReady() || !run) throw new Error('当前环境不能上传成绩');
+  await t.submitScore({ board:RANK_SCORE, score:clampScore(run.score) });
+  await t.submitScore({ board:RANK_WAVE,  score:clampScore(run.wave) });
+  run.submitted = true;
+  if (!myRankReady()) return null;
   try { return await t.getMyRank({ board:RANK_SCORE, period:'all' }); }
   catch (_) { return null; }
 }
 async function doUpload(){
+  if (uploadInFlight) return uploadInFlight;
+  const run = lastRun;
   btnUpload.disabled = true;
   setOverRank('正在上传成绩…');
-  try {
-    const mine = await uploadRun();
-    setUploadBtn('view', '🏆 查看排行榜');
-    setOverRank(mine && mine.ranked
-      ? '已上榜 · 总榜第 ' + mine.rank + ' 名（' + Number(mine.score).toLocaleString() + ' 分）'
-      : '成绩已上传', 'ok');
-  } catch (e){
-    setOverRank(rankErrText(e), 'error');
-    setUploadBtn('upload', '🏆 重试上传');   // 多半是没登录，留着按钮让人重来
-  } finally {
-    btnUpload.disabled = false;
-  }
+  uploadInFlight = (async () => {
+    try {
+      const mine = await uploadRun(run);
+      if (lastRun !== run) return;          // 授权弹窗期间若已开新局，不覆盖新结算页
+      setUploadBtn('view', '🏆 查看排行榜');
+      setOverRank(mine && mine.ranked
+        ? '已上榜 · 总榜第 ' + mine.rank + ' 名（' + Number(mine.score).toLocaleString() + ' 分）'
+        : '成绩已上传', 'ok');
+    } catch (e){
+      if (lastRun !== run) return;
+      setOverRank(rankErrText(e), 'error');
+      setUploadBtn('upload', '🏆 重试上传');   // 多半是没登录，留着按钮让人重来
+    } finally {
+      uploadInFlight = null;
+      btnUpload.disabled = false;
+    }
+  })();
+  return uploadInFlight;
 }
 function refreshOverRank(){
   setOverRank('');
   setUploadBtn('');
-  if (!lastRun || !lastRun.solo || !rankReady()) return;   // 站外环境：一个字都不提排行榜
+  if (!lastRun || !lastRun.solo || !rankSubmitReady()) return;   // 站外环境：一个字都不提排行榜
   if (!rankEligible(lastRun.diff)){
     const name = (DIFFS.find(d => d.key === lastRun.diff) || {}).name || '当前';
     setOverRank('本局是「' + name + '」难度 · 排行榜只统计标准难度');
     return;
   }
   if (lastRun.submitted){ setUploadBtn('view', '🏆 查看排行榜'); return; }
-  if (localStoreGet(RANK_AUTO_KEY) === 'on') doUpload();
-  else setUploadBtn('upload', '🏆 上传成绩到排行榜');
+  // 每局都由玩家点击提交，避免浏览器换号后沿用未按账号隔离的 localStorage 授权状态。
+  setUploadBtn('upload', '🏆 上传成绩到排行榜');
 }
 btnUpload.onclick = () => {
   if (btnUpload.dataset.mode === 'view'){ openRank('over'); sfx('click'); }
@@ -3921,8 +4121,8 @@ async function loadRank(){
   rankStatus.dataset.kind = '';
   rankStatus.textContent = '加载中…';
   const t = toySdk();
-  if (!t){
-    rankStatus.textContent = '当前环境没有 Toy SDK，排行榜只在 B站 里可用';
+  if (!rankReadReady()){
+    rankStatus.textContent = '当前环境不支持 Toy 排行榜';
     rankStatus.dataset.kind = 'error';
     return;
   }
@@ -3949,6 +4149,7 @@ async function loadRank(){
     rankListEl.appendChild(li);
   }
   // 我的排名：游客调这个会失败，属于正常情况，静默略过
+  if (!myRankReady()) return;
   try {
     const mine = await t.getMyRank({ board:rankBoard, period:rankPeriod });
     if (token !== rankToken || !mine || !mine.ranked) return;
@@ -3983,7 +4184,6 @@ function openRank(from){
   loadRank();
 }
 const btnRank = document.getElementById('btnRank');
-if (rankReady()) btnRank.classList.remove('hidden');
 btnRank.onclick = () => { openRank('menu'); sfx('click'); };
 document.getElementById('btnRankBack').onclick = () => { setScreen(rankReturn); sfx('click'); };
 
@@ -4011,6 +4211,7 @@ function setScreen(s){
   syncContainerImmersive();                           // 开打进沉浸、停下就还回去（App 内才有效）
   if (touchPlay){ refreshSwapBtn(); layoutTouchUI(); }
   if (s === 'over') refreshOverRank();
+  if (s === 'menu') applyPendingCloudPreferences();
   cvs.style.cursor = (playing && controlMode === 'mouse') ? 'none' : 'default';
 }
 const modeBtns = [document.getElementById('btnMode'), document.getElementById('btnMode2')];
@@ -4035,7 +4236,7 @@ function refreshAimBtns(){
 }
 function toggleAim(){
   aimAssist = !aimAssist;
-  localStoreSet(AIM_KEY, aimAssist ? 'on' : 'off');
+  persistPreferences();
   if (player) player.aimLock = null;
   refreshAimBtns();
   sfx('click');
@@ -4056,12 +4257,10 @@ if (btnTouchDbg){
 }
 /* ---------- 难度选择（记在本地，下次进来还是这一档） ---------- */
 const btnDiff = document.getElementById('btnDiff');
-const savedDiff = DIFFS.findIndex(d => d.key === localStoreGet(DIFF_KEY));
-if (savedDiff >= 0) diffIndex = savedDiff;
 function refreshDiffBtn(){ btnDiff.textContent = '难度：' + DIF().name; }
 btnDiff.onclick = () => {
   diffIndex = (diffIndex + 1) % DIFFS.length;
-  localStoreSet(DIFF_KEY, DIF().key);
+  persistPreferences();
   refreshDiffBtn();
   sfx('click');
 };
@@ -4119,6 +4318,7 @@ MAPS.forEach((m, i) => {
   card.appendChild(nm);
   card.onclick = () => {
     mapIndex = i; buildGround();
+    persistPreferences();
     if (net.room && net.room.phase === 'lobby' && net.isHost) net.configureRoom(i);
     refreshMapSel(); sfx('click');
   };
@@ -4133,7 +4333,10 @@ document.getElementById('btnMapBack').onclick = () => { setScreen(mapReturnScree
 
 /* ---------- 多人联机大厅 ---------- */
 const onlineName = document.getElementById('onlineName');
+const onlineServer = document.getElementById('onlineServer');
+const onlineServerField = document.getElementById('onlineServerField');
 const onlineConsent = document.getElementById('onlineConsent');
+const btnToyProfile = document.getElementById('btnToyProfile');
 const btnCreateRoom = document.getElementById('btnCreateRoom');
 const btnJoinP2P = document.getElementById('btnJoinP2P');
 const onlineJoin = document.getElementById('onlineJoin');
@@ -4160,10 +4363,30 @@ let roomRequestBusy = false;
 
 onlineName.value = localStoreGet('zombie-world-player-name') ||
   ('幸存者' + Math.floor(10 + Math.random()*90));
+onlineServer.value = ONLINE_ALLOW_CUSTOM_SERVER ? net.url : ONLINE_SERVER_URL;
+onlineServerField.classList.toggle('hidden', !ONLINE_ALLOW_CUSTOM_SERVER);
+
 function setOnlineStatus(text, kind){
   onlineStatus.textContent = text;
   onlineStatus.dataset.kind = kind || '';
 }
+btnToyProfile.onclick = async () => {
+  if (!toyCapabilities.getUserProfile || !toyBridge ||
+      typeof toyBridge.requestNickname !== 'function') return;
+  btnToyProfile.disabled = true;
+  setOnlineStatus('正在读取 B站昵称…');
+  try {
+    // requestNickname 会在当前点击调用栈内立即调用 getUserProfile，满足 SDK 的用户手势要求。
+    const nickname = await toyBridge.requestNickname();
+    onlineName.value = nickname;
+    localStoreSet('zombie-world-player-name', nickname);
+    setOnlineStatus('已填入 B站昵称；账号标识不会发送给联机服务器。', 'ok');
+  } catch (error){
+    setOnlineStatus(toyErrText(error, '读取 B站昵称失败，可继续手动填写。'), 'error');
+  } finally {
+    btnToyProfile.disabled = false;
+  }
+};
 function setRoomRequestBusy(busy){
   roomRequestBusy = !!busy;
   btnCreateRoom.disabled = roomRequestBusy;
@@ -4317,9 +4540,10 @@ function leaveMultiplayer(showOnline, reason){
 }
 
 const btnOnline = document.getElementById('btnOnline');
-if (ONLINE_ENABLED) btnOnline.classList.remove('hidden');
+if (ONLINE_RUNTIME_ENABLED) btnOnline.classList.remove('hidden');
 btnOnline.onclick = () => {
-  if (!ONLINE_ENABLED) return;
+  if (!ONLINE_RUNTIME_ENABLED) return;
+  onlineServer.value = ONLINE_ALLOW_CUSTOM_SERVER ? net.url : ONLINE_SERVER_URL;
   setScreen('online');
   renderRoom();
   sfx('click');
@@ -4333,6 +4557,7 @@ btnCreateRoom.onclick = async () => {
   roomCodeBig.textContent = '······';
   setOnlineStatus('正在连接服务器…');
   try {
+    onlineServer.value = net.setServerUrl(ONLINE_ALLOW_CUSTOM_SERVER ? onlineServer.value : ONLINE_SERVER_URL);
     const room = await net.createRoom(currentName(), ROOM_CAPACITY);
     roomCodeBig.textContent = room.code;
     setOnlineStatus('房间码 ' + room.code + ' —— 告诉队友，他输进去就能进来。', 'ok');
@@ -4365,6 +4590,7 @@ btnRoomCodeGo.onclick = async () => {
   setRoomRequestBusy(true);
   setOnlineStatus('正在加入 ' + code + '…');
   try {
+    onlineServer.value = net.setServerUrl(ONLINE_ALLOW_CUSTOM_SERVER ? onlineServer.value : ONLINE_SERVER_URL);
     await net.joinRoom(code, currentName());
     setRoomStage('');
     setOnlineStatus('已进房，等房主开局。', 'ok');
@@ -4517,9 +4743,9 @@ document.addEventListener('visibilitychange', () => {
   lastSnapshotSent = performance.now();
   net.sendSnapshot({ tick:++snapshotTick, simTime:time, state:buildNetworkState() });
 });
-// 会话恢复只对 WSS 后端有意义。局域网直连的 hasSavedSession() 恒为 false：一条 P2P 管道
-// 随页面而生随页面而灭，刷新就等于断线，没有能被「恢复」的东西——与其假装能恢复，不如直说。
-if (ONLINE_ENABLED && net.hasSavedSession()){
+// 公开版仅恢复指向当前房间服务器的会话。
+const savedSessionServer = ONLINE_ALLOW_CUSTOM_SERVER ? undefined : ONLINE_SERVER_URL;
+if (ONLINE_RUNTIME_ENABLED && net.hasSavedSession(savedSessionServer)){
   restoringSavedSession = true;
   onlineConsent.checked = true;
   setScreen('online');
@@ -4527,8 +4753,8 @@ if (ONLINE_ENABLED && net.hasSavedSession()){
   net.resumeSavedSession().catch(error => {
     setOnlineStatus(error.message || '会话恢复失败，请重新加入房间。', 'error');
   });
-} else if (!ONLINE_ENABLED){
-  net.disconnect(true);          // 清掉可能残留的会话凭证，别让它在后台重连
+} else {
+  net.disconnect(true);
 }
 
 document.getElementById('btnStart').onclick = () => {
@@ -4577,6 +4803,7 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 reset();
+detectToyCapabilities();
 onViewportChange();      // 放在最后：此时画布、触屏按钮、镜头都已就位
 initContainer();         // 容器能力是异步探的，探到了它会自己再排一次版
 requestAnimationFrame(loop);
