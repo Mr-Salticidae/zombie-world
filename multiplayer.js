@@ -8,7 +8,7 @@
 (function exposeMultiplayerClient(global){
   const SESSION_KEY = "zombie-world-multiplayer-session";
   const SERVER_KEY = "zombie-world-multiplayer-server";
-  const CLASSIC_MAP_COUNT = 5, MAP_COUNT = 6;
+  const CLASSIC_MAP_COUNT = 5, MAP_COUNT = 8;
   const SERVER_MESSAGE_WINDOW_MS = 10_000;
   const SERVER_MESSAGE_MAX_COUNT = 400;
   const SERVER_MESSAGE_MAX_CHARS = 512 * 1024;
@@ -226,7 +226,7 @@
           const saved = this.pendingResume || readSession();
           if (saved && normalizeServerUrl(saved.url) === socketUrl){
             this.pendingResume = saved;
-            this.send("room.resume", { code:saved.code, resumeToken:saved.token });
+            this.send("room.resume", { code:saved.code, resumeToken:saved.token, mapCount:MAP_COUNT });
           }
           settle();
         });
@@ -435,6 +435,7 @@
       await this.connect();
       return this.requestRoom("room.create", {
         name,
+        mapCount:MAP_COUNT,
         capacity:Math.max(2, Math.min(4, capacity || 4))
       });
     }
@@ -444,6 +445,7 @@
       await this.connect();
       return this.requestRoom("room.join", {
         code:String(code || "").trim().toUpperCase(),
+        mapCount:MAP_COUNT,
         name
       });
     }

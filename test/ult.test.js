@@ -12,25 +12,27 @@ function fixture(){
   const context = vm.createContext({
     player, players: new Map([[player.id, player], [guest.id, guest]]),
     state: 'play', netMode: 'host', WN: 9,
-    frameN: 1, kills: 0, streak: 0, comboTimer: 0, score: 0, multiplier: 2, shake: 0,
-    zombies: [], devils: [], bosses: [], pickups: [], particles: [], banners: [],
+    time:0, frameN: 1, kills: 0, streak: 0, comboTimer: 0, score: 0, multiplier: 2, shake: 0,
+    zombies: [], devils: [], bosses: [], pickups: [], ultEffects: [], banners: [],
     dropCoin(...args){ dropped.push(args); },
     coinValue: baseScore => baseScore / 5,
     updateMulti(){}, sfx(){}, blood(){},
   });
-  const functions = ['activateUlt', 'enemyDamage', 'updatePlayerFromInput', 'killReward'].map(name => {
+  const functions = ['activateUlt', 'emitUltEffect', 'enemyDamage', 'movementSpeed', 'updatePlayerFromInput', 'killReward'].map(name => {
     const definition = source.match(new RegExp('^function ' + name + '\\([\\s\\S]*?^}', 'm'));
     assert.ok(definition, name);
     return definition[0];
   });
-  const constants = source.match(/^const ULT_(?:DURATION|KILLS_REQUIRED) = \d+;$/gm);
-  assert.equal(constants?.length, 2);
-  vm.runInContext([...constants, ...functions].join('\n'), context);
+  const constants = source.match(/^const ULT_(?:DURATION|KILLS_REQUIRED|RADIUS|INTERVAL|FX_LIFE) = .*;$/gm);
+  assert.equal(constants?.length, 5);
+  const mods = source.match(/^const MOD_SHRAPNEL = .*;$/m);
+  assert.ok(mods);
+  vm.runInContext([...constants, mods[0], ...functions].join('\n'), context);
   return { context, player, guest, dropped };
 }
 
 function makePlayer(id, ultCharge){
-  return { id, name: id, hp: 70, x: 0, y: 0, ultCharge, ultT: 0, ultKills: 0, lastUltSeq: 0 };
+  return { id, name: id, hp: 70, x: 0, y: 0, fx:1, fy:0, ultCharge, ultT:0, ultKills:0, ultBeat:0, lastUltSeq:0 };
 }
 
 test('无双发动后持续 12 秒，期间 50 次击杀只发放战斗奖励', () => {
@@ -82,4 +84,25 @@ test('联机房主只锁定正在无双的玩家，队友照常充能', () => {
   context.killReward(0, 0, 10, player.id);
   assert.equal(guest.ultKills, 0);
   assert.equal(player.ultKills, 1);
+});
+
+test('连斩特效跟随实际出刀、命中位置和收刀时刻', () => {
+  const { context, player } = fixture();
+  const near = { x:30, y:0, r:12, hp:80 };
+  const far = { x:80, y:0, r:12, hp:80 };
+  context.zombies.push(near,far);
+  context.activateUlt(player);
+  context.updatePlayerFromInput(player, {}, .016, 0);
+  assert.equal(near.hp,54);
+  assert.equal(far.hp,80);
+  assert.equal(player.hp,72);
+  assert.equal(player.ultBeat,1);
+  assert.deepEqual(context.ultEffects.map(effect => effect.kind),['draw','slash','hit']);
+  assert.equal(context.ultEffects[2].x,30);
+
+  context.updatePlayerFromInput(player, {}, .016, 16);
+  assert.equal(player.ultBeat,1);
+  player.ultT=.01;
+  context.updatePlayerFromInput(player, {}, .016, 32);
+  assert.equal(context.ultEffects.at(-1).kind,'sheathe');
 });

@@ -124,6 +124,28 @@ async function readyAndStart(host, guest) {
   return started;
 }
 
+test("a new map requires compatible clients and is preserved when the match starts", async (t) => {
+  const fixture = await startFixture();
+  t.after(() => fixture.close());
+  const host = await fixture.peer();
+  host.send({ type:"room.create", name:"Host", mapCount:8, mapIndex:6 });
+  const room = await host.waitFor(message => message.type === "room.state");
+  assert.equal(room.mapCount,8);
+
+  const legacy = await fixture.peer();
+  legacy.send({ type:"room.join", name:"Legacy", code:room.code });
+  const rejected = await legacy.waitFor(message => message.type === "error");
+  assert.equal(rejected.code,"MAP_CLIENT_OUTDATED");
+
+  const guest = await fixture.peer();
+  guest.send({ type:"room.join", name:"Guest", code:room.code, mapCount:8 });
+  await guest.waitFor(message => message.type === "room.state");
+  host.send({ type:"room.config", mapIndex:7 });
+  await guest.waitFor(message => message.type === "room.state" && message.mapIndex === 7);
+  const started = await readyAndStart(host,guest);
+  assert.equal(started.mapIndex,7);
+});
+
 test("serves the static game and reserves /ws for WebSocket upgrades", async (t) => {
   const fixture = await startFixture();
   t.after(() => fixture.close());
@@ -296,6 +318,8 @@ test("enforces authority and relays guest inputs and host snapshots", async (t) 
     fire: true,
     weapon: 2,
     ultSeq: 1,
+    buySeq: 3,
+    buy: "modFuse",
   });
   const input = await host.waitFor(
     (message) => message.type === "input" && message.seq === 7,
@@ -303,6 +327,8 @@ test("enforces authority and relays guest inputs and host snapshots", async (t) 
   assert.equal(input.playerId, guestState.selfId);
   assert.equal(input.fire, true);
   assert.equal(input.weapon, 2);
+  assert.equal(input.buySeq, 3);
+  assert.equal(input.buy, "modFuse");
 
   const snapshot = {
     type: "snapshot",
@@ -319,6 +345,8 @@ test("enforces authority and relays guest inputs and host snapshots", async (t) 
   guest.send({ type: "input", seq: 8, mx: 2 });
   const invalidInput = await guest.waitFor((message) => message.type === "error");
   assert.equal(invalidInput.code, "INVALID_INPUT");
+  guest.send({ type:"input", seq:9, buySeq:-1, buy:"modFuse" });
+  assert.equal((await guest.waitFor(message => message.type === "error")).code,"INVALID_INPUT");
 });
 
 test("bounds snapshot size and relay frequency", async (t) => {

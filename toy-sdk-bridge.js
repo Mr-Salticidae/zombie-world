@@ -15,10 +15,13 @@
     "removeCloudStorage",
     "submitScore",
     "getRankList",
-    "getMyRank"
+    "getMyRank",
+    "getChargeUnlock",
+    "openChargePanel"
   ]);
   const CLOUD_VALUE_MAX_BYTES = 1024;
   const CLOUD_KEY_MAX_BYTES = 128;
+  const ANY_PAID_TIER_FEN = 1;
 
   function sdk(){
     return global && global.toy ? global.toy : null;
@@ -65,6 +68,20 @@
 
     // 有意不返回 avatar / toyOpenId；联机目前只需要昵称，遵循数据最小化。
     return nickname;
+  }
+
+  async function requestChargeUnlock(){
+    const toy = sdk();
+    if (!toy || typeof toy.getChargeUnlock !== "function") return { status:"unsupported", unlocked:false };
+    const result = await toy.getChargeUnlock({ minPrice:ANY_PAID_TIER_FEN });
+    return { status:result?.status ?? "unavailable", unlocked:result?.status === "ok" && result.data?.unlocked === true };
+  }
+
+  async function openCreatorChargePanel(){
+    const toy = sdk();
+    if (!toy || typeof toy.openChargePanel !== "function") throw new Error("当前环境不支持打开充电面板");
+    // SDK 要求在用户点击的调用栈内打开官方面板。
+    return toy.openChargePanel({ minPrice:ANY_PAID_TIER_FEN });
   }
 
   function utf8Bytes(value){
@@ -133,6 +150,8 @@
     isSupported,
     normalizeNickname,
     requestNickname,
+    requestChargeUnlock,
+    openCreatorChargePanel,
     getCloudJson,
     setCloudJson,
     removeCloudKeys

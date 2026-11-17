@@ -248,12 +248,12 @@
     overflow:hidden; white-space:nowrap; }
   #pauseBtn { width:44px; height:44px; border-radius:8px; font-size:13px; letter-spacing:.1em; }
   #ultBtn { width:66px; height:66px; border-radius:50%;
-    font-size:15px; font-weight:800; letter-spacing:.04em; }
-  #ultBtn[data-s="ready"] { background:#c43e32; border-color:#ffb18d;
-    animation:ultPulse 1.4s ease-in-out infinite; }
-  #ultBtn[data-s="active"] { background:rgba(255,179,62,.95); border-color:#fff; color:#2a0707; }
-  #ultBtn[data-s="charge"] { opacity:.82; }
-  @keyframes ultPulse { 50% { box-shadow:0 3px 0 #000, 0 0 22px rgba(224,60,49,.6); } }
+    font-size:15px; font-weight:800; letter-spacing:.04em; --ult-edge:#d68e61; }
+  #ultBtn::before { content:""; position:absolute; inset:2px; pointer-events:none; border-radius:50%;
+    background:conic-gradient(var(--ult-edge) var(--ult-progress,0%), #514048 0);
+    mask:radial-gradient(farthest-side, transparent calc(100% - 3px),#000 0); }
+  #ultBtn[data-s="ready"] { background:#602d2c; border-color:#271b22; --ult-edge:#ffad8a; }
+  #ultBtn[data-s="active"] { background:#452a28; border-color:#271b22; --ult-edge:#ffbf8e; }
   /* ---------- 波间商店 ---------- */
   #shop { position:fixed; inset:0; z-index:9; display:flex; align-items:center;
     justify-content:center; background:rgba(13,11,12,.83);
@@ -277,6 +277,38 @@
   .shop-item u { text-decoration:none; font-size:11px; color:#c3aea3; }
   .shop-item em { font-style:normal; margin-top:2px; font-size:13px; font-weight:800; color:#f6b989; }
   .shop-item:disabled { opacity:.62; cursor:default; }
+  .shop-section { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline;
+    color:#f3e7d9; font-size:13px; padding:2px 0; }
+  .shop-section span { color:#f2bd79; font-size:12px; }
+  .shop-section small { flex-basis:100%; color:#c6b8ac; }
+  .shop-mod { background:#272f34; border-color:#587b86; min-height:62px; }
+  .shop-mod b { color:#c4e8ed; }
+  .shop-grid.has-mods { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  @media (orientation:landscape) and (min-width:560px){
+    .shop-grid.has-mods { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  }
+  .wardrobe-frame { width:min(100%,820px); }
+  .wardrobe-body { display:grid; align-items:start; align-content:start; gap:15px; }
+  .wardrobe-preview { display:grid; gap:6px; padding:10px; border:1px solid #51403a; background:#211e21; }
+  .wardrobe-preview canvas { display:block; width:100%; max-height:172px; object-fit:contain; background:#252126; }
+  .wardrobe-preview h2 { margin:0; font-size:19px; color:#f5e9db; }
+  .wardrobe-preview p, .wardrobe-support p { margin:0; font-size:13px; line-height:1.45; color:#c7b6ad; }
+  .outfit-modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin-top:3px; }
+  .outfit-modes .ui-action { padding:5px; min-height:36px; font-size:12px; }
+  .outfit-modes [aria-pressed="true"] { background:#45322e; border-color:#c68b65; color:#fff0e1; }
+  .wardrobe-controls, .wardrobe-support { display:grid; gap:8px; }
+  .outfit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
+  .outfit-option { display:grid; grid-template-columns:auto 1fr; gap:2px 8px; align-items:center; text-align:left; }
+  .outfit-option span { grid-row:1/3; width:12px; height:23px; background:var(--outfit-swatch); border-radius:2px; }
+  .outfit-option small { color:#c7b6ad; font-size:11px; }
+  .outfit-option[aria-pressed="true"] { border-color:#f0ae76; background:#3a2826; }
+  .wardrobe-actions { display:flex; flex-wrap:wrap; gap:7px; }
+  .wardrobe-controls #btnEquipOutfit:disabled { cursor:default; color:#d3c0b4; background:#342c31; border-color:#58464a; }
+  .wardrobe-actions:not(:has(button:not(.hidden))) { display:none; }
+  @media (orientation:landscape) and (min-width:560px){
+    .wardrobe-body { grid-template-columns:minmax(0,1fr) minmax(0,1.35fr); }
+    .wardrobe-preview canvas { max-height:155px; }
+  }
   .shop-foot { padding-top:7px; border-top:1px solid #453635; }
   #shopFoot { color:#c4b0a3; font-size:12px; }
   #shopFoot:empty { display:none; }

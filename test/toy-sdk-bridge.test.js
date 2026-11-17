@@ -22,6 +22,8 @@ function sdk(overrides = {}){
     submitScore:async () => ({ score:1 }),
     getRankList:async () => [],
     getMyRank:async () => ({ ranked:false, rank:0, score:0 }),
+    getChargeUnlock:async () => ({ status:"ok", data:{ unlocked:false } }),
+    openChargePanel:async () => {},
     ...overrides
   };
 }
@@ -38,7 +40,7 @@ test("detect probes every Toy ability through isSupport", async () => {
   const result = await bridge.detect();
   assert.deepEqual(seen, [
     "getUserProfile", "getCloudStorage", "setCloudStorage", "removeCloudStorage",
-    "submitScore", "getRankList", "getMyRank"
+    "submitScore", "getRankList", "getMyRank", "getChargeUnlock", "openChargePanel"
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(result)), {
     getUserProfile:true,
@@ -47,8 +49,36 @@ test("detect probes every Toy ability through isSupport", async () => {
     removeCloudStorage:true,
     submitScore:true,
     getRankList:true,
-    getMyRank:false
+    getMyRank:false,
+    getChargeUnlock:true,
+    openChargePanel:true
   });
+});
+
+test("charge cosmetics require an explicit successful Toy entitlement", async () => {
+  const replies = [
+    { status:"denied", data:{ unlocked:true } },
+    { status:"ok", data:{ unlocked:1 } },
+    { status:"ok", data:{ unlocked:true } }
+  ];
+  const bridge = loadBridge(sdk({ getChargeUnlock:async options => {
+    assert.equal(options.minPrice,1);
+    return replies.shift();
+  } }));
+  assert.equal((await bridge.requestChargeUnlock()).unlocked,false);
+  assert.equal((await bridge.requestChargeUnlock()).unlocked,false);
+  assert.equal((await bridge.requestChargeUnlock()).unlocked,true);
+});
+
+test("opens the official recharge panel within the original click call", async () => {
+  let opened = false;
+  const bridge = loadBridge(sdk({ openChargePanel:options => {
+    assert.equal(options.minPrice,1);
+    opened = true;
+  } }));
+  const pending = bridge.openCreatorChargePanel();
+  assert.equal(opened,true);
+  await pending;
 });
 
 test("unsupported, missing and rejected abilities degrade to false", async () => {

@@ -120,9 +120,43 @@
       </div>
       <nav class="home-links" aria-label="更多入口">
         <button type="button" class="hidden" id="btnRank">排行榜</button>
+        <button type="button" id="btnWardrobe">外观</button>
         <button type="button" id="btnHelp">操作说明</button>
         <button type="button" id="btnSettings">设置</button>
       </nav>
+    </div>
+  </div>
+</div>
+
+<div id="wardrobe" class="screen page-screen hidden" aria-labelledby="wardrobeTitle">
+  <div class="page-frame wardrobe-frame">
+    <header class="page-head">
+      <button type="button" class="ui-action ui-back" id="btnWardrobeBack">‹ 返回</button>
+      <h1 id="wardrobeTitle">外观</h1>
+    </header>
+    <div class="page-body wardrobe-body">
+      <div class="wardrobe-preview">
+        <canvas id="outfitPreview" width="360" height="200" role="img" aria-label="角色与枪身预览"></canvas>
+        <h2 id="outfitName"></h2>
+        <p id="outfitDescription"></p>
+        <div class="outfit-modes" id="outfitModes" role="group" aria-label="装备预览">
+          <button type="button" class="ui-action" data-mode="pistol" aria-pressed="true">手枪</button>
+          <button type="button" class="ui-action" data-mode="shotgun" aria-pressed="false">霰弹枪</button>
+          <button type="button" class="ui-action" data-mode="ult" aria-pressed="false">无双</button>
+        </div>
+      </div>
+      <div class="wardrobe-controls">
+        <div id="outfitGrid" class="outfit-grid" role="group" aria-label="选择外观"></div>
+        <button type="button" class="ui-action ui-primary" id="btnEquipOutfit">使用外观</button>
+        <section class="wardrobe-support" aria-label="B站包月充电回馈">
+          <p>包月充电可解锁纪念外观。角色和枪身的外观仅在本机显示，属性一致。</p>
+          <div class="wardrobe-actions">
+            <button type="button" class="ui-action hidden" id="btnCheckCharge">检查充电资格</button>
+            <button type="button" class="ui-action hidden" id="btnOpenCharge">打开 B 站充电面板</button>
+          </div>
+          <p id="outfitStatus" role="status" aria-live="polite"></p>
+        </section>
+      </div>
     </div>
   </div>
 </div>
@@ -299,7 +333,7 @@
       连击倍数达到 <b>×3 / ×5 / ×8 / ×11 / ×13 / ×15 / ×17 / ×20</b> 依次解锁：
       马格南、乌兹、霰弹枪、加特林、手雷、油桶、喷火器、火箭筒。
       <b>解锁不会把枪从手里换掉</b>。受到伤害连击减半。<br>
-      <b>无双大招</b>：<kbd>R</kbd> 或点右下角图标，双刀乱舞并<b>吸血</b>，持续 12 秒。开局自带一次，无双结束后击杀 <b>50</b> 个敌人可再次充能。<br>
+      <b>无双大招</b>：<kbd>R</kbd> 或点右下角图标，双刀连斩并<b>命中回血</b>，持续 12 秒。开局自带一次，无双结束后击杀 <b>50</b> 个敌人可再次充能。<br>
       <b>排行榜</b>：主菜单进，分<b>得分榜</b>与<b>坚守波数榜</b>。阵亡结算页可上传成绩（<b>只统计标准难度</b>）。<br>
       <b>云存档</b>：登录 B 站后可跨设备同步难度、默认地图和自动瞄准。离线时设置保存在本机。
     </details>

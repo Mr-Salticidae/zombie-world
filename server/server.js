@@ -98,11 +98,17 @@ function normalizeCapacity(value) {
   return capacity;
 }
 
-const MAP_COUNT = 6;
-function normalizeMapIndex(value) {
+const LEGACY_MAP_COUNT = 6, MAP_COUNT = 8;
+function normalizeClientMapCount(value) {
+  return Number.isInteger(value) ? Math.min(MAP_COUNT, Math.max(5, value)) : LEGACY_MAP_COUNT;
+}
+function roomMapCount(room) {
+  return Math.min(MAP_COUNT, ...[...room.players.values()].map(player => player.mapCount));
+}
+function normalizeMapIndex(value, mapCount) {
   const mapIndex = value ?? 0;
-  if (!Number.isInteger(mapIndex) || mapIndex < 0 || mapIndex >= MAP_COUNT) {
-    throw new ProtocolError("INVALID_MAP", `Map index must be an integer from 0 to ${MAP_COUNT - 1}.`);
+  if (!Number.isInteger(mapIndex) || mapIndex < 0 || mapIndex >= mapCount) {
+    throw new ProtocolError("INVALID_MAP", `Map index must be an integer from 0 to ${mapCount - 1}.`);
   }
   return mapIndex;
 }
@@ -306,6 +312,18 @@ function sanitizeInput(message, playerId) {
     }
     input.ultSeq = message.ultSeq;
   }
+  if (message.buySeq !== undefined) {
+    if (!Number.isSafeInteger(message.buySeq) || message.buySeq < 0) {
+      throw new ProtocolError("INVALID_INPUT", "buySeq must be a non-negative safe integer.");
+    }
+    input.buySeq = message.buySeq;
+  }
+  if (message.buy !== undefined) {
+    if (typeof message.buy !== "string" || !/^[a-zA-Z0-9]{0,12}$/u.test(message.buy)) {
+      throw new ProtocolError("INVALID_INPUT", "buy must be a short shop item identifier.");
+    }
+    input.buy = message.buy;
+  }
   if (message.clientTime !== undefined) {
     if (!finiteNumber(message.clientTime) || message.clientTime < 0) {
       throw new ProtocolError("INVALID_INPUT", "clientTime must be a non-negative finite number.");
@@ -492,7 +510,7 @@ export function createGameServer(options = {}) {
       hostId: room.hostId,
       phase: room.phase,
       mapIndex: room.mapIndex,
-      mapCount: MAP_COUNT,
+      mapCount: roomMapCount(room),
       capacity: room.capacity,
       players: playerList(room),
     });
@@ -582,11 +600,12 @@ export function createGameServer(options = {}) {
     clearPlayerTimer(player);
   }
 
-  function makePlayer(name, slot, ws) {
+  function makePlayer(name, slot, ws, mapCount) {
     return {
       id: randomUUID(),
       name,
       slot,
+      mapCount,
       ready: false,
       connected: true,
       resumeToken: newResumeToken(),
@@ -602,8 +621,9 @@ export function createGameServer(options = {}) {
       throw new ProtocolError("SERVER_BUSY", "The room limit has been reached.");
     }
     const capacity = normalizeCapacity(message.capacity);
-    const mapIndex = normalizeMapIndex(message.mapIndex);
-    const player = makePlayer(normalizeName(message.name), 0, client.ws);
+    const mapCount = normalizeClientMapCount(message.mapCount);
+    const mapIndex = normalizeMapIndex(message.mapIndex, mapCount);
+    const player = makePlayer(normalizeName(message.name), 0, client.ws, mapCount);
     const room = {
       code: makeUniqueRoomCode(),
       hostId: player.id,
@@ -634,7 +654,9 @@ export function createGameServer(options = {}) {
     if (slot < 0) {
       throw new ProtocolError("ROOM_FULL", "The room is full.");
     }
-    const player = makePlayer(normalizeName(message.name), slot, client.ws);
+    const mapCount = normalizeClientMapCount(message.mapCount);
+    if (room.mapIndex >= mapCount) throw new ProtocolError("MAP_CLIENT_OUTDATED", "Refresh the game to join this map.");
+    const player = makePlayer(normalizeName(message.name), slot, client.ws, mapCount);
     room.players.set(player.id, player);
     attachPlayer(client, room, player);
     broadcastRoomState(room);
@@ -655,6 +677,8 @@ export function createGameServer(options = {}) {
     if (!player) {
       throw new ProtocolError("RESUME_FAILED", "Reconnect token is invalid or expired.");
     }
+    const mapCount = normalizeClientMapCount(message.mapCount);
+    if (room.mapIndex >= mapCount) throw new ProtocolError("MAP_CLIENT_OUTDATED", "Refresh the game to rejoin this map.");
 
     const previousWs = player.ws;
     if (previousWs && previousWs !== client.ws) {
@@ -666,6 +690,7 @@ export function createGameServer(options = {}) {
     }
 
     player.resumeToken = newResumeToken();
+    player.mapCount = mapCount;
     attachPlayer(client, room, player);
     if (previousWs && previousWs !== client.ws && previousWs.readyState === WebSocket.OPEN) {
       previousWs.close(4001, "Session resumed elsewhere");
@@ -687,7 +712,7 @@ export function createGameServer(options = {}) {
     const { room, player } = roomForClient(client);
     requireLobby(room);
     requireHost(room, player);
-    room.mapIndex = normalizeMapIndex(message.mapIndex);
+    room.mapIndex = normalizeMapIndex(message.mapIndex, roomMapCount(room));
     broadcastRoomState(room);
   }
 
